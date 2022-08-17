@@ -19,7 +19,8 @@ module TransactionManager {
     use StarcoinFramework::Epoch;
     use StarcoinFramework::Hash;
     use StarcoinFramework::Vector;
-
+    use StarcoinFramework::PriceOracle;
+    use StarcoinFramework::STCTokenOracle::STCToken;
     spec module {
         pragma verify = false;
         pragma aborts_if_is_strict = true;
@@ -159,6 +160,9 @@ module TransactionManager {
         success: bool,
     ) {
         CoreAddresses::assert_genesis_address(&account);
+        let stc_price = PriceOracle::read<STCToken<TokenType>>(CoreAddresses::GENESIS_ADDRESS());
+        //Fixme: stc_price is zero
+        Account::txn_gas_process<TokenType>(&account, txn_sender, txn_gas_price, txn_max_gas_units, gas_units_remaining, stc_price);
         Account::txn_epilogue_v2<TokenType>(
             &account,
             txn_sender,

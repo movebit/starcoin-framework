@@ -159,7 +159,7 @@ module Account {
     const DUMMY_AUTH_KEY:vector<u8> = x"0000000000000000000000000000000000000000000000000000000000000000";
     // cannot be dummy key, or empty key
     const CONTRACT_ACCOUNT_AUTH_KEY_PLACEHOLDER:vector<u8> = x"0000000000000000000000000000000000000000000000000000000000000001";
-    
+
     /// The address bytes length
     const ADDRESS_LENGTH: u64 = 16;
 
@@ -182,7 +182,7 @@ module Account {
             Event::emit_event<SignerDelegateEvent>(
                 &mut event_store.signer_delegate_events,
                 SignerDelegateEvent {
-                    account_address: signer_addr    
+                    account_address: signer_addr
                 }
             );
         };
@@ -350,7 +350,7 @@ module Account {
     spec create_delegate_account {
         pragma verify = false;
         //TODO write spec
-    }    
+    }
 
     /// Deposits the `to_deposit` token into the self's account balance
     public fun deposit_to_self<TokenType: store>(account: &signer, to_deposit: Token<TokenType>)
@@ -390,11 +390,11 @@ module Account {
         to_deposit: Token<TokenType>,
         metadata: vector<u8>,
     ) acquires Account, Balance, AutoAcceptToken {
-        
+
         if (!exists_at(receiver)) {
             create_account_with_address<TokenType>(receiver);
         };
-        
+
         try_accept_token<TokenType>(receiver);
 
         let deposit_value = Token::value(&to_deposit);
@@ -979,11 +979,6 @@ module Account {
         );
         let max_transaction_fee = txn_gas_price * txn_max_gas_units;
         if (max_transaction_fee > 0) {
-            assert!(
-                STC::is_stc<TokenType>(),
-                Errors::invalid_argument(EBAD_TRANSACTION_FEE_TOKEN)
-            );
-
             let balance_amount = balance<TokenType>(txn_sender);
             assert!(balance_amount >= (max_transaction_fee as u128), Errors::invalid_argument(EPROLOGUE_CANT_PAY_GAS_DEPOSIT));
 
@@ -1022,7 +1017,7 @@ module Account {
         txn_gas_price: u64,
         txn_max_gas_units: u64,
         gas_units_remaining: u64,
-    ) acquires Account, Balance {
+    ) acquires Account {
         txn_epilogue_v2<TokenType>(account, txn_sender, txn_sequence_number, Vector::empty(), txn_gas_price, txn_max_gas_units, gas_units_remaining)
     }
 
@@ -1037,38 +1032,48 @@ module Account {
         txn_sender: address,
         txn_sequence_number: u64,
         txn_authentication_key_preimage: vector<u8>,
-        txn_gas_price: u64,
-        txn_max_gas_units: u64,
-        gas_units_remaining: u64,
-    ) acquires Account, Balance {
+        _txn_gas_price: u64,
+        _txn_max_gas_units: u64,
+        _gas_units_remaining: u64,
+    ) acquires Account {
         CoreAddresses::assert_genesis_address(account);
-
         // Load the transaction sender's account and balance resources
         let sender_account = borrow_global_mut<Account>(txn_sender);
-        let sender_balance = borrow_global_mut<Balance<TokenType>>(txn_sender);
-
-        // Charge for gas
-        let transaction_fee_amount =(txn_gas_price * (txn_max_gas_units - gas_units_remaining) as u128);
-        assert!(
-            balance_for(sender_balance) >= transaction_fee_amount,
-            Errors::limit_exceeded(EINSUFFICIENT_BALANCE)
-        );
-
         // Bump the sequence number
         sender_account.sequence_number = txn_sequence_number + 1;
         // Set auth key when user send transaction first.
         if (is_dummy_auth_key(sender_account) && !Vector::is_empty(&txn_authentication_key_preimage)){
             sender_account.authentication_key = Hash::sha3_256(txn_authentication_key_preimage);
         };
+    }
+    
+    public fun txn_gas_process<TokenType: store>(
+        account: &signer,
+        txn_sender: address,
+        txn_gas_price: u64,
+        txn_max_gas_units: u64,
+        gas_units_remaining: u64,
+        stc_price: u128) acquires Balance {
+        CoreAddresses::assert_genesis_address(account);
+        // Load the transaction sender's account and balance resources
+        let sender_balance = borrow_global_mut<Balance<TokenType>>(txn_sender);
+        // Charge for gas
+        let transaction_fee_amount =(txn_gas_price * (txn_max_gas_units - gas_units_remaining) as u128);
+        assert!(
+            balance_for(sender_balance) >= transaction_fee_amount,
+            Errors::limit_exceeded(EINSUFFICIENT_BALANCE)
+        );
         if (transaction_fee_amount > 0) {
             let transaction_fee = withdraw_from_balance(
-                    sender_balance,
-                    transaction_fee_amount
+                sender_balance,
+                transaction_fee_amount
             );
-            TransactionFee::pay_fee(transaction_fee);
+            deposit_to_balance(borrow_global_mut<Balance<TokenType>>(CoreAddresses::GENESIS_ADDRESS()),transaction_fee);
+            let stc_transaction_fee = withdraw_from_balance(borrow_global_mut<Balance<STC>>(CoreAddresses::GENESIS_ADDRESS()), transaction_fee_amount*stc_price);
+            TransactionFee::pay_fee(stc_transaction_fee);
         };
     }
-
+    
     spec txn_epilogue_v2 {
         pragma verify = false; // Todo: fix me, cost too much time
         aborts_if Signer::address_of(account) != CoreAddresses::GENESIS_ADDRESS();

@@ -234,6 +234,10 @@ module PriceOracle{
     }
 
 }
+module STCTokenOracle {
+    struct STCToken<phantom TokenType:store> has copy, store, drop {
+    }
+}
 
 module STCUSDOracle{
     use StarcoinFramework::Oracle::{DataRecord};
