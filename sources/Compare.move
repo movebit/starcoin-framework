@@ -43,7 +43,13 @@ module Compare {
         // BCS uses little endian encoding for all integer types, so we choose to compare from left
         // to right. Going right to left would make the behavior of Compare.cmp diverge from the
         // bytecode operators < and > on integer values (which would be confusing).
-        while (i1 > 0 && i2 > 0) {
+        while ({
+            spec {
+                invariant i1 <= len(v1);
+                invariant i2 <= len(v2);
+            };
+            i1 > 0 && i2 > 0
+        }) {
             i1 = i1 - 1;
             i2 = i2 - 1;
             let elem_cmp = cmp_u8(*Vector::borrow(v1, i1), *Vector::borrow(v2, i2));
@@ -54,13 +60,23 @@ module Compare {
         len_cmp
     }
 
+    spec cmp_bcs_bytes {
+        aborts_if false;
+    }
+
     public fun cmp_bytes(v1: &vector<u8>, v2: &vector<u8>): u8 {
         let l1 = Vector::length(v1);
         let l2 = Vector::length(v2);
         let len_cmp = cmp_u64(l1, l2);
         let i1 = 0;
         let i2 = 0;
-        while (i1 < l1 && i2 < l2) {
+        while ({
+            spec {
+                invariant i1 <= len(v1);
+                invariant i2 <= len(v2);
+            };
+            i1 < l1 && i2 < l2
+        }) {
             let elem_cmp = cmp_u8(*Vector::borrow(v1, i1), *Vector::borrow(v2, i2));
             if (elem_cmp != 0) {
                 return elem_cmp
@@ -74,14 +90,9 @@ module Compare {
     }
 
     spec cmp_bytes {
-        pragma verify = false;
-        //cmp_u8(*Vector::borrow(v1, i1), *Vector::borrow(v2, i2)) is not covered
+        aborts_if false;
     }
 
-    spec cmp_bcs_bytes {
-        pragma verify = false;
-        //cmp_u8(*Vector::borrow(v1, i1), *Vector::borrow(v2, i2)) is not covered
-    }
     // Compare two `u8`'s
     fun cmp_u8(i1: u8, i2: u8): u8 {
         if (i1 == i2) EQUAL
@@ -91,6 +102,7 @@ module Compare {
 
     spec cmp_u8 {
         aborts_if false;
+        include EnsuresCmp;
     }
 
     // Compare two `u64`'s
@@ -102,8 +114,17 @@ module Compare {
 
     spec cmp_u64 {
         aborts_if false;
+        include EnsuresCmp;
     }
 
+    spec schema EnsuresCmp {
+        i1: u64;
+        i2: u64;
+        result: u8;
+        ensures i1 == i2 ==> result == EQUAL;
+        ensures i1 <  i2 ==> result == LESS_THAN;
+        ensures i1 >  i2 ==> result == GREATER_THAN;
+    }
 }
 
 }
