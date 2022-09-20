@@ -17,7 +17,7 @@ module STC {
     use StarcoinFramework::CoreAddresses;
 
     spec module {
-        pragma verify = false;
+        pragma verify = true;
         pragma aborts_if_is_strict = true;
     }
 
@@ -80,7 +80,9 @@ module STC {
     }
 
     spec upgrade_from_v1_to_v2 {
+        // TODO: Enabling the verificaiton of this method led to prover use up all memory and gets killed. 
         pragma verify = false;
+        // aborts_if Signer::address_of(account) != CoreAddresses::SPEC_GENESIS_ADDRESS();
     }
 
     /// STC initialization.
@@ -135,6 +137,8 @@ module STC {
     }
 
     spec is_stc {
+        aborts_if false;
+        // TODO: needs reflection
     }
 
     /// Burn STC tokens.
@@ -155,6 +159,7 @@ module STC {
     }
 
     spec token_address {
+        aborts_if false;
     }
 }
 }
