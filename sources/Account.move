@@ -16,7 +16,7 @@ module Account {
     use StarcoinFramework::STC::{Self, STC};
 
     spec module {
-        pragma verify = false;
+        pragma verify = true;
         pragma aborts_if_is_strict = true;
     }
 
@@ -148,29 +148,56 @@ module Account {
             move_to(signer, SignerDelegated {});
         };
 
-        let signer_cap = SignerCapability {addr: signer_addr };
+        let signer_cap = SignerCapability { addr: signer_addr };
         signer_cap
+    }
+
+    spec remove_signer_capability {
+        let addr = Signer::address_of(signer);
+        let cap_opt = global<Account>(addr).key_rotation_capability;
+        let cap = Option::borrow(cap_opt);
+
+        aborts_if is_signer_delegated(addr);
+        include ExtractKeyRotationCapabilitySchema{ account: signer };
+        include RotateAuthenticationKeyWithCapabilitySchema{ new_authentication_key: CONTRACT_ACCOUNT_AUTH_KEY_PLACEHOLDER };
+        ensures is_signer_delegated(addr);
+        ensures result.addr == addr;
     }
 
     public fun create_signer_with_cap(cap: &SignerCapability): signer {
         create_signer(cap.addr)
     }
+    spec create_signer_with_cap {
+        aborts_if false;
+        //ensures Signer::address_of(result) == cap.addr;
+    }
+
     public fun destroy_signer_cap(cap: SignerCapability) {
         let SignerCapability {addr: _} = cap;
+    }
+    spec destroy_signer_cap {
+        aborts_if false;
     }
 
     public fun signer_address(cap: &SignerCapability): address {
         cap.addr
     }
+    spec signer_address {
+        aborts_if false;
+    }
+
     public fun is_signer_delegated(addr: address): bool {
         exists<SignerDelegated>(addr)
+    }
+    spec is_signer_delegated {
+        aborts_if false;
     }
 
     /// Create an genesis account at `new_account_address` and return signer.
     /// Genesis authentication_key is zero bytes.
     public fun create_genesis_account(
         new_account_address: address,
-    ) :signer {
+    ): signer {
         Timestamp::assert_genesis();
         let new_account = create_signer(new_account_address);
         make_account(&new_account, DUMMY_AUTH_KEY);
@@ -179,8 +206,8 @@ module Account {
 
     spec create_genesis_account {
         aborts_if !Timestamp::is_genesis();
-        aborts_if len(DUMMY_AUTH_KEY) != 32;
-        aborts_if exists<Account>(new_account_address);
+        include MakeAccountSchema{address: new_account_address, authentication_key: DUMMY_AUTH_KEY};
+        // ensures Signer::address_of(result) == new_account_address
     }
 
     /// Release genesis account signer
@@ -214,14 +241,12 @@ module Account {
     }
 
     spec create_account_with_address {
-        //abort condition for make_account
-        aborts_if exists<Account>(fresh_address);
-        //abort condition for do_accept_token<STC>
-        aborts_if Token::spec_token_code<TokenType>() != Token::spec_token_code<STC>() && exists<Balance<STC>>(fresh_address);
-        //abort condition for do_accept_token<TokenType>
-        aborts_if exists<Balance<TokenType>>(fresh_address);
-        ensures exists_at(fresh_address);
-        ensures exists<Balance<TokenType>>(fresh_address);
+        include MakeAccountSchema{address: fresh_address, authentication_key: DUMMY_AUTH_KEY};
+        // SPECTODO: add theory about `create_signer` to enable following 3 properties 
+        //include DoAcceptTokenSchema<TokenType>{account: create_signer(fresh_address) };
+        //include DoAcceptTokenSchema<STC>{ addr: fresh_address };
+        //include DoAcceptTokenSchema<Token>{ addr: fresh_address };
+        pragma aborts_if_is_partial;
     }
 
     fun make_account(
@@ -248,20 +273,41 @@ module Account {
         });
         move_to(new_account, AutoAcceptToken{enable: true});
     }
-
     spec make_account {
+        include MakeAccountSchema{address: Signer::address_of(new_account)};
+    }
+
+    spec schema MakeAccountSchema {
+        address: address;
+        authentication_key: vector<u8>;
         aborts_if len(authentication_key) != 32;
-        aborts_if exists<Account>(Signer::address_of(new_account));
-        aborts_if exists<AutoAcceptToken>(Signer::address_of(new_account));
-        ensures exists_at(Signer::address_of(new_account));
+        aborts_if exists<Account>(address);
+        aborts_if exists<AutoAcceptToken>(address);
+        ensures exists<Account>(address);
+        ensures exists<AutoAcceptToken>(address) && global<AutoAcceptToken>(address).enable;
     }
 
     native fun create_signer(addr: address): signer;
+    // SPECTODO: add this to native bpl
+    //spec create_signer {
+    //    pragma opaque;
+    //    ensures Signer::address_of(result) == addr;
+    //}
 
-    public(script) fun create_account_with_initial_amount<TokenType: store>(account: signer, fresh_address: address, _auth_key: vector<u8>, initial_amount: u128)
-    acquires Account, Balance, AutoAcceptToken {
+    public(script) fun create_account_with_initial_amount<TokenType: store>(
+        account: signer, 
+        fresh_address: address, 
+        _auth_key: vector<u8>, 
+        initial_amount: u128
+    ) acquires Account, Balance, AutoAcceptToken {
          create_account_with_initial_amount_v2<TokenType>(account, fresh_address, initial_amount)
     }
+    spec create_account_with_initial_amount {
+        // Same spec as `create_account_with_initial_amount_v2`
+        include MakeAccountSchema{address: fresh_address, authentication_key: DUMMY_AUTH_KEY};
+        pragma aborts_if_is_partial; // pay_from conditions
+    }
+
 
     public(script) fun create_account_with_initial_amount_v2<TokenType: store>(account: signer, fresh_address: address, initial_amount: u128)
     acquires Account, Balance, AutoAcceptToken {
@@ -270,13 +316,9 @@ module Account {
             pay_from<TokenType>(&account, fresh_address, initial_amount);
         };
     }
-
-    spec create_account_with_initial_amount {
-        pragma verify = false;
-    }
-
     spec create_account_with_initial_amount_v2 {
-         pragma verify = false;
+        include MakeAccountSchema{address: fresh_address, authentication_key: DUMMY_AUTH_KEY};
+        pragma aborts_if_is_partial; // pay_from conditions
     }
 
     /// Deposits the `to_deposit` token into the self's account balance
@@ -290,11 +332,14 @@ module Account {
     }
 
     spec deposit_to_self {
-        aborts_if to_deposit.value == 0;
-        let is_accepts_token = exists<Balance<TokenType>>(Signer::address_of(account));
-        aborts_if is_accepts_token && global<Balance<TokenType>>(Signer::address_of(account)).token.value + to_deposit.value > max_u128();
-        aborts_if !exists<Account>(Signer::address_of(account));
-        ensures exists<Balance<TokenType>>(Signer::address_of(account));
+        pragma aborts_if_is_partial;
+        let addr = Signer::address_of(account);
+
+        //aborts_if !exists<Account>(Signer::address_of(account)); // OOM
+        ensures exists<Balance<TokenType>>(addr);
+        let old_balance = global<Balance<TokenType>>(addr).token;
+        let post new_balance = global<Balance<TokenType>>(addr).token;
+        //ensures new_balance.value == old_balance.value + to_deposit.value; // OOM
     }
 
     /// Deposits the `to_deposit` token into the `receiver`'s account balance with the no metadata
@@ -307,7 +352,12 @@ module Account {
     }
 
     spec deposit {
-        include DepositWithMetadataAbortsIf<TokenType>;
+        // Same spec as `deposit_with_metadata`
+        pragma aborts_if_is_partial;
+
+        include TryAcceptTokenSchema<TokenType>{addr: receiver};
+
+        //include Token::DepositSchema<TokenType>{check: to_deposit}; // SPECTODO: OOM
     }
 
     /// Deposits the `to_deposit` token into the `receiver`'s account balance with the attached `metadata`
@@ -332,9 +382,11 @@ module Account {
     }
 
     spec deposit_with_metadata {
-        include DepositWithMetadataAbortsIf<TokenType>;
-        ensures exists<Balance<TokenType>>(receiver);
-        ensures old(global<Balance<TokenType>>(receiver)).token.value + to_deposit.value == global<Balance<TokenType>>(receiver).token.value;
+        pragma aborts_if_is_partial;
+
+        include TryAcceptTokenSchema<TokenType>{addr: receiver};
+
+        //include Token::DepositSchema<TokenType>{check: to_deposit}; // SPECTODO: OOM
     }
 
     spec schema DepositWithMetadataAbortsIf<TokenType> {
@@ -353,9 +405,10 @@ module Account {
     fun deposit_to_balance<TokenType: store>(balance: &mut Balance<TokenType>, token: Token::Token<TokenType>) {
         Token::deposit(&mut balance.token, token)
     }
-
     spec deposit_to_balance {
-        aborts_if balance.token.value + token.value > MAX_U128;
+        let old_token = balance.token;
+        let post new_token = balance.token;
+        include Token::DepositSchema<TokenType>{check: token};
     }
 
 
@@ -364,9 +417,11 @@ module Account {
     fun withdraw_from_balance<TokenType: store>(balance: &mut Balance<TokenType>, amount: u128): Token<TokenType>{
         Token::withdraw(&mut balance.token, amount)
     }
-
     spec withdraw_from_balance {
-        aborts_if balance.token.value < amount;
+        include Token::WithdrawSchema<TokenType>{
+            token: balance.token,
+            value: amount,
+        };
     }
 
     /// Withdraw `amount` Token<TokenType> from the account balance
@@ -375,10 +430,10 @@ module Account {
         withdraw_with_metadata<TokenType>(account, amount, x"")
     }
     spec withdraw {
-        aborts_if !exists<Balance<TokenType>>(Signer::address_of(account));
-        aborts_if !exists<Account>(Signer::address_of(account));
-        aborts_if global<Balance<TokenType>>(Signer::address_of(account)).token.value < amount;
-        aborts_if Option::is_none(global<Account>(Signer::address_of(account)).withdrawal_capability);
+        // Similar to the spec of `withdraw_with_capability_and_metadata`
+        pragma aborts_if_is_partial; // Need this, otherwise Prover gets killed for OOM.
+        let addr = Signer::address_of(account);
+        include WithdrawSchema<TokenType>;
     }
 
 
@@ -389,7 +444,7 @@ module Account {
         let sender_balance = borrow_global_mut<Balance<TokenType>>(sender_addr);
         // The sender_addr has delegated the privilege to withdraw from her account elsewhere--abort.
         assert!(!delegated_withdraw_capability(sender_addr), Errors::invalid_state(EWITHDRAWAL_CAPABILITY_ALREADY_EXTRACTED));
-        if (amount == 0){
+        if (amount == 0) {
             return Token::zero()
         };
         emit_account_withdraw_event<TokenType>(sender_addr, amount, metadata);
@@ -398,14 +453,10 @@ module Account {
     }
 
     spec withdraw_with_metadata {
-        aborts_if !exists<Balance<TokenType>>(Signer::address_of(account));
-        aborts_if !exists<Account>(Signer::address_of(account));
-        aborts_if global<Balance<TokenType>>(Signer::address_of(account)).token.value < amount;
-        aborts_if Option::is_none(global<Account>(Signer::address_of(account)).withdrawal_capability);
-    }
-
-    spec fun spec_withdraw<TokenType>(account: signer, amount: u128): Token<TokenType> {
-        Token<TokenType> { value: amount }
+        // Similar to the spec of `withdraw_with_capability_and_metadata`
+        pragma aborts_if_is_partial; // Need this, otherwise Prover gets killed for OOM.
+        let addr = Signer::address_of(account);
+        include WithdrawSchema<TokenType>;
     }
 
     /// Withdraw `amount` Token<TokenType> from the account under cap.account_address with no metadata
@@ -414,11 +465,10 @@ module Account {
     ): Token<TokenType> acquires Balance, Account {
         withdraw_with_capability_and_metadata<TokenType>(cap, amount, x"")
     }
-
     spec withdraw_with_capability {
-        aborts_if !exists<Balance<TokenType>>(cap.account_address);
-        aborts_if !exists<Account>(cap.account_address);
-        aborts_if global<Balance<TokenType>>(cap.account_address).token.value < amount;
+        // Same as spec of `withdraw_with_capability_and_metadata`
+        pragma aborts_if_is_partial; // Need this, otherwise Prover gets killed for OOM.
+        include WithdrawSchema<TokenType>{addr: cap.account_address};
     }
 
     /// Withdraw `amount` Token<TokenType> from the account under cap.account_address with metadata
@@ -427,13 +477,26 @@ module Account {
     ): Token<TokenType> acquires Balance, Account {
         let balance = borrow_global_mut<Balance<TokenType>>(cap.account_address);
         emit_account_withdraw_event<TokenType>(cap.account_address, amount, metadata);
-        withdraw_from_balance<TokenType>(balance , amount)
+        withdraw_from_balance<TokenType>(balance, amount)
+    }
+    spec withdraw_with_capability_and_metadata {
+        pragma aborts_if_is_partial; // Need this, otherwise Prover gets killed for OOM.
+        include WithdrawSchema<TokenType>{addr: cap.account_address};
     }
 
-    spec withdraw_with_capability_and_metadata {
-        aborts_if !exists<Balance<TokenType>>(cap.account_address);
-        aborts_if !exists<Account>(cap.account_address);
-        aborts_if global<Balance<TokenType>>(cap.account_address).token.value < amount;
+    spec schema WithdrawSchema<TokenType> {
+        addr: address;
+        amount: u128;
+        result: Token<TokenType>;
+
+        include EmitAccountWithdrawEvent;
+
+        //include Token::WithdrawSchema<TokenType>{token: balance.token, value: amount};
+        let balance = global<Balance<TokenType>>(addr).token;
+        let post new_balance = global<Balance<TokenType>>(addr).token;
+        aborts_if balance.value < amount;
+        ensures result.value == amount; 
+        ensures new_balance.value == balance.value - amount;
     }
 
 
@@ -447,22 +510,26 @@ module Account {
         let account = borrow_global_mut<Account>(sender_addr);
         Option::extract(&mut account.withdrawal_capability)
     }
-
     spec extract_withdraw_capability {
-        aborts_if !exists<Account>(Signer::address_of(sender));
-        aborts_if Option::is_none(global<Account>( Signer::address_of(sender)).withdrawal_capability);
+        pragma aborts_if_is_partial;
+        let addr = Signer::address_of(sender);
+        // delegated_withdraw_capability aborts condition
+        aborts_if !exists<Account>(addr);
+        aborts_if Option::is_none(global<Account>(addr).withdrawal_capability);
+        ensures Option::is_none(global<Account>(addr).withdrawal_capability);
     }
 
-     /// Return the withdraw capability to the account it originally came from
-     public fun restore_withdraw_capability(cap: WithdrawCapability)
-        acquires Account {
-            let account = borrow_global_mut<Account>(cap.account_address);
-            Option::fill(&mut account.withdrawal_capability, cap)
-     }
-
+    /// Return the withdraw capability to the account it originally came from
+    public fun restore_withdraw_capability(cap: WithdrawCapability) acquires Account {
+        let account = borrow_global_mut<Account>(cap.account_address);
+        Option::fill(&mut account.withdrawal_capability, cap)
+    }
     spec restore_withdraw_capability {
-        aborts_if Option::is_some(global<Account>(cap.account_address).withdrawal_capability);
-        aborts_if !exists<Account>(cap.account_address);
+        pragma aborts_if_is_partial;
+        let addr = cap.account_address; 
+        aborts_if !exists<Account>(addr);
+        aborts_if Option::is_some(global<Account>(addr).withdrawal_capability);
+        ensures Option::is_some(global<Account>(addr).withdrawal_capability);
     }
 
     fun emit_account_withdraw_event<TokenType: store>(account: address, amount: u128, metadata: vector<u8>)
@@ -477,7 +544,11 @@ module Account {
         });
     }
     spec emit_account_withdraw_event {
-        aborts_if !exists<Account>(account);
+        include EmitAccountWithdrawEvent{addr: account};
+    }
+    spec schema EmitAccountWithdrawEvent {
+        addr: address;
+        aborts_if !exists<Account>(addr);
     }
 
     fun emit_account_deposit_event<TokenType: store>(account: address, amount: u128, metadata: vector<u8>)
@@ -492,7 +563,11 @@ module Account {
         });
     }
     spec emit_account_deposit_event {
-        aborts_if !exists<Account>(account);
+        include EmitAccountDepositEvent{addr: account};
+    }
+    spec schema EmitAccountDepositEvent {
+        addr: address;
+        aborts_if !exists<Account>(addr);
     }
 
 
@@ -513,15 +588,11 @@ module Account {
     }
 
     spec pay_from_capability {
-        // condition for withdraw_with_capability_and_metadata()
-        aborts_if !exists<Balance<TokenType>>(cap.account_address);
-        aborts_if !exists<Account>(cap.account_address);
-        aborts_if global<Balance<TokenType>>(cap.account_address).token.value < amount;
+        pragma aborts_if_is_partial;
+
+        // SPECTODO: Maybe ban the case that payer == payee?
+        // Check the spec of `pay_from_with_metadata`.
         // condition for deposit_with_metadata()
-        aborts_if amount == 0;
-        aborts_if !exists<Account>(payee);
-        aborts_if !exists<Balance<TokenType>>(payee);
-        aborts_if cap.account_address != payee && global<Balance<TokenType>>(payee).token.value + amount > MAX_U128;
     }
 
     /// Withdraw `amount` Token<TokenType> from the transaction sender's
@@ -540,31 +611,18 @@ module Account {
             metadata,
         );
     }
-
     spec pay_from_with_metadata {
+        pragma aborts_if_is_partial;
+        let sender_addr = Signer::address_of(account);
+
         // condition for withdraw_with_metadata()
-        aborts_if !exists<Balance<TokenType>>(Signer::address_of(account));
-        aborts_if !exists<Account>(Signer::address_of(account));
-        aborts_if global<Balance<TokenType>>(Signer::address_of(account)).token.value < amount;
-        aborts_if Option::is_none(global<Account>(Signer::address_of(account)).withdrawal_capability);
+        // include WithdrawSchema<TokenType>{addr: sender_addr, tokens}; 
+        // Cannot use `WithdrawSchema` because there's no way to obtain tokens, define effects again.
+        let balance = global<Balance<TokenType>>(sender_addr).token;
+        let post new_balance = global<Balance<TokenType>>(sender_addr).token;
+        // SPECTODO: Maybe ban the case that payer == payee?
         // condition for deposit_with_metadata()
-        aborts_if amount == 0;
-        aborts_if !exists<Account>(payee);
-        aborts_if !exists<Balance<TokenType>>(payee);
-        aborts_if Signer::address_of(account) != payee && global<Balance<TokenType>>(payee).token.value + amount > max_u128();
-}
-    spec schema DepositWithPayerAndMetadataAbortsIf<TokenType> {
-        payer: address;
-        payee: address;
-        to_deposit: Token<TokenType>;
-
-        aborts_if to_deposit.value == 0;
-        aborts_if !exists<Account>(payer);
-        aborts_if !exists<Account>(payee);
-        aborts_if !exists<Balance<TokenType>>(payee);
-        aborts_if global<Balance<TokenType>>(payee).token.value + to_deposit.value > max_u128();
     }
-
 
     /// Withdraw `amount` Token<TokenType> from the transaction sender's
     /// account balance  and send the token to the `payee` address
@@ -578,16 +636,8 @@ module Account {
     }
 
     spec pay_from {
-        // condition for withdraw_with_metadata()
-        aborts_if !exists<Balance<TokenType>>(Signer::address_of(account));
-        aborts_if !exists<Account>(Signer::address_of(account));
-        aborts_if global<Balance<TokenType>>(Signer::address_of(account)).token.value < amount;
-        aborts_if Option::is_none(global<Account>(Signer::address_of(account)).withdrawal_capability);
-        // condition for deposit_with_metadata()
-        aborts_if amount == 0;
-        aborts_if !exists<Account>(payee);
-        aborts_if !exists<Balance<TokenType>>(payee);
-        aborts_if Signer::address_of(account) != payee && global<Balance<TokenType>>(payee).token.value + amount > max_u128();
+        // Same as spec of `pay_from_with_metadata`
+        pragma aborts_if_is_partial;
     }
 
     /// Rotate the authentication key for the account under cap.account_address
@@ -600,17 +650,23 @@ module Account {
         assert!(Vector::length(&new_authentication_key) == 32, Errors::invalid_argument(EMALFORMED_AUTHENTICATION_KEY));
         sender_account_resource.authentication_key = new_authentication_key;
     }
-
     spec rotate_authentication_key_with_capability {
+        include RotateAuthenticationKeyWithCapabilitySchema;
+    }
+
+    spec schema RotateAuthenticationKeyWithCapabilitySchema {
+        cap: KeyRotationCapability;
+        new_authentication_key: vector<u8>;
+
         aborts_if !exists<Account>(cap.account_address);
         aborts_if len(new_authentication_key) != 32;
         ensures global<Account>(cap.account_address).authentication_key == new_authentication_key;
     }
 
-        spec fun spec_rotate_authentication_key_with_capability(addr: address, new_authentication_key: vector<u8>): bool {
-            global<Account>(addr).authentication_key == new_authentication_key
-        }
-
+    // Not used for now.
+    //spec fun spec_rotate_authentication_key_with_capability(addr: address, new_authentication_key: vector<u8>): bool {
+    //    global<Account>(addr).authentication_key == new_authentication_key
+    //}
 
     /// Return a unique capability granting permission to rotate the sender's authentication key
     public fun extract_key_rotation_capability(account: &signer): KeyRotationCapability
@@ -623,8 +679,15 @@ module Account {
     }
 
     spec extract_key_rotation_capability {
+        include ExtractKeyRotationCapabilitySchema;
+    }
+
+    spec schema ExtractKeyRotationCapabilitySchema {
+        account: signer;
+
         aborts_if !exists<Account>(Signer::address_of(account));
         aborts_if Option::is_none(global<Account>(Signer::address_of(account)).key_rotation_capability);
+        ensures Option::is_none(global<Account>(Signer::address_of(account)).key_rotation_capability);
     }
 
     /// Return the key rotation capability to the account it originally came from
@@ -633,23 +696,39 @@ module Account {
         let account = borrow_global_mut<Account>(cap.account_address);
         Option::fill(&mut account.key_rotation_capability, cap)
     }
+    spec restore_key_rotation_capability {
+        pragma aborts_if_is_partial;
+    //     aborts_if Option::is_some(global<Account>(cap.account_address).key_rotation_capability);
+    //     aborts_if !exists<Account>(cap.account_address);
+    }
+
     public fun destroy_key_rotation_capability(cap: KeyRotationCapability) {
         let KeyRotationCapability {account_address: _} = cap;
     }
-
-    spec restore_key_rotation_capability {
-        aborts_if Option::is_some(global<Account>(cap.account_address).key_rotation_capability);
-        aborts_if !exists<Account>(cap.account_address);
+    spec destroy_key_rotation_capability {
+        aborts_if false;
     }
 
     public(script) fun rotate_authentication_key(account: signer, new_key: vector<u8>) acquires Account {
         let key_rotation_capability = extract_key_rotation_capability(&account);
+        spec {
+            assume key_rotation_capability.account_address == Signer::address_of(account);
+        };
         rotate_authentication_key_with_capability(&key_rotation_capability, new_key);
         restore_key_rotation_capability(key_rotation_capability);
     }
 
     spec rotate_authentication_key {
-        pragma verify = false;
+        pragma aborts_if_is_partial;
+
+        let addr = Signer::address_of(account);
+
+        aborts_if !exists<Account>(addr);
+        aborts_if Option::is_none(global<Account>(addr).key_rotation_capability);
+        aborts_if len(new_key) != 32;
+
+        ensures global<Account>(addr).authentication_key == new_key;
+        ensures Option::is_some(global<Account>(addr).key_rotation_capability);
     }
 
     /// Helper to return the u128 value of the `balance` for `account`
@@ -659,6 +738,7 @@ module Account {
 
     spec balance_for {
         aborts_if false;
+        ensures result == Token::value<TokenType>(balance.token);
     }
 
     /// Return the current TokenType balance of the account at `addr`.
@@ -668,6 +748,13 @@ module Account {
         } else {
             0u128
         }
+    }
+    spec balance {
+        ensures if (exists<Balance<TokenType>>(addr)) {
+            result == global<Balance<TokenType>>(addr).token.value
+        } else {
+            result == 0
+        };
     }
 
 
@@ -680,32 +767,35 @@ module Account {
         // Log a sent event
         Event::emit_event<AcceptTokenEvent>(
             &mut sender_account_ref.accept_token_events,
-            AcceptTokenEvent {
-                token_code:  token_code,
-            },
+            AcceptTokenEvent { token_code },
         );
     }
 
     spec do_accept_token {
-        aborts_if exists<Balance<TokenType>>(Signer::address_of(account));
-        aborts_if !exists<Account>(Signer::address_of(account));
+        include DoAcceptTokenSchema<TokenType>{addr: Signer::address_of(account)};
+    }
+    spec schema DoAcceptTokenSchema<TokenType> {
+        addr: address;
+        aborts_if exists<Balance<TokenType>>(addr);
+        aborts_if !exists<Account>(addr);
+
+        ensures exists<Balance<TokenType>>(addr);
+        // Ignore Event log
     }
 
     public(script) fun accept_token<TokenType: store>(account: signer) acquires Account {
         do_accept_token<TokenType>(&account);
     }
-
     spec accept_token {
-        pragma verify = false;
+        include DoAcceptTokenSchema<TokenType>{addr: Signer::address_of(account)};
     }
 
     /// This is a alias of is_accept_token
     public fun is_accepts_token<TokenType: store>(addr: address): bool acquires AutoAcceptToken {
         Self::is_accept_token<TokenType>(addr)
     }
-
     spec is_accepts_token {
-        aborts_if false;
+        ensures result == spec_can_auto_accept_token(addr) || exists<Balance<TokenType>>(addr);
     }
 
     /// Return whether the account at `addr` accept `Token` type tokens
@@ -716,9 +806,8 @@ module Account {
             exists<Balance<TokenType>>(addr)
         }
     }
-
     spec is_accept_token {
-        aborts_if false;
+        ensures result == spec_can_auto_accept_token(addr) || exists<Balance<TokenType>>(addr);
     }
 
     /// Check whether the address can auto accept token.
@@ -728,6 +817,13 @@ module Account {
         } else {
             false
         }
+    }
+    spec can_auto_accept_token {
+        aborts_if false;
+        ensures result == spec_can_auto_accept_token(addr);
+    }
+    spec fun spec_can_auto_accept_token(addr: address): bool {
+        exists<AutoAcceptToken>(addr) && global<AutoAcceptToken>(addr).enable
     }
 
     /// Configure whether auto-accept tokens.
@@ -742,6 +838,8 @@ module Account {
     }
     spec set_auto_accept_token {
         aborts_if false;
+        let addr = Signer::address_of(account);
+        ensures global<AutoAcceptToken>(addr).enable == enable;
     }
 
     /// try to accept token for `addr`.
@@ -750,21 +848,32 @@ module Account {
             if (can_auto_accept_token(addr)) {
                 let signer = create_signer(addr);
                 do_accept_token<TokenType>(&signer);
-            }else{
+            } else {
                 abort Errors::not_published(ERR_TOKEN_NOT_ACCEPT)
             }
         };
     }
     spec try_accept_token {
-        aborts_if false;
+        include TryAcceptTokenSchema<TokenType>;
+    }
+    spec schema TryAcceptTokenSchema<TokenType> {
+        addr: address;
+
+        aborts_if !exists<Balance<TokenType>>(addr) && !spec_can_auto_accept_token(addr);
+
+        let cond = !exists<Balance<TokenType>>(addr) && spec_can_auto_accept_token(addr);
+
+        // Need sender info to record event
+        aborts_if cond && !exists<Account>(addr);
+        // If not abort, ensures the existence of balance
+        ensures exists<Balance<TokenType>>(addr);
     }
 
     /// Helper to return the sequence number field for given `account`
     fun sequence_number_for_account(account: &Account): u64 {
         account.sequence_number
     }
-
-    spec is_accepts_token {
+    spec sequence_number_for_account {
         aborts_if false;
     }
 
@@ -772,7 +881,6 @@ module Account {
     public fun sequence_number(addr: address): u64 acquires Account {
         sequence_number_for_account(borrow_global<Account>(addr))
     }
-
     spec sequence_number {
         aborts_if !exists<Account>(addr);
     }
@@ -781,7 +889,6 @@ module Account {
     public fun authentication_key(addr: address): vector<u8> acquires Account {
         *&borrow_global<Account>(addr).authentication_key
     }
-
     spec authentication_key {
         aborts_if !exists<Account>(addr);
     }
@@ -791,7 +898,6 @@ module Account {
     acquires Account {
         Option::is_none(&borrow_global<Account>(addr).key_rotation_capability)
     }
-
     spec delegated_key_rotation_capability {
         aborts_if !exists<Account>(addr);
     }
@@ -801,7 +907,6 @@ module Account {
     acquires Account {
         Option::is_none(&borrow_global<Account>(addr).withdrawal_capability)
     }
-
     spec delegated_withdraw_capability {
         aborts_if !exists<Account>(addr);
     }
@@ -810,7 +915,6 @@ module Account {
     public fun withdraw_capability_address(cap: &WithdrawCapability): &address {
         &cap.account_address
     }
-
     spec withdraw_capability_address {
         aborts_if false;
     }
@@ -819,7 +923,6 @@ module Account {
     public fun key_rotation_capability_address(cap: &KeyRotationCapability): &address {
         &cap.account_address
     }
-
     spec key_rotation_capability_address {
         aborts_if false;
     }
@@ -828,13 +931,16 @@ module Account {
     public fun exists_at(check_addr: address): bool {
         exists<Account>(check_addr)
     }
-
     spec exists_at {
         aborts_if false;
     }
 
     fun is_dummy_auth_key(account: &Account): bool {
         *&account.authentication_key == DUMMY_AUTH_KEY
+    }
+    spec is_dummy_auth_key {
+        aborts_if false;
+        ensures result == (account.authentication_key == DUMMY_AUTH_KEY);
     }
 
     /// The prologue is invoked at the beginning of every transaction
@@ -866,7 +972,7 @@ module Account {
                 Authenticator::derived_address(Hash::sha3_256(txn_authentication_key_preimage)) == txn_sender,
                 Errors::invalid_argument(EPROLOGUE_INVALID_ACCOUNT_AUTH_KEY)
             );
-        }else{
+        } else {
             // Check that the hash of the transaction's public key matches the account's auth key
             assert!(
                 Hash::sha3_256(txn_authentication_key_preimage) == *&sender_account.authentication_key,
@@ -881,10 +987,11 @@ module Account {
         );
         let max_transaction_fee = txn_gas_price * txn_max_gas_units;
         if (max_transaction_fee > 0) {
-            assert!(
-                STC::is_stc<TokenType>(),
-                Errors::invalid_argument(EBAD_TRANSACTION_FEE_TOKEN)
-            );
+            //let is_stc = STC::is_stc<TokenType>();
+            // spec {
+            //     assume is_stc;
+            // };
+            assert!(STC::is_stc<TokenType>(), Errors::invalid_argument(EBAD_TRANSACTION_FEE_TOKEN));
 
             let balance_amount = balance<TokenType>(txn_sender);
             assert!(balance_amount >= (max_transaction_fee as u128), Errors::invalid_argument(EPROLOGUE_CANT_PAY_GAS_DEPOSIT));
@@ -901,18 +1008,25 @@ module Account {
     }
 
     spec txn_prologue {
+        pragma aborts_if_is_partial;
         aborts_if Signer::address_of(account) != CoreAddresses::SPEC_GENESIS_ADDRESS();
         aborts_if !exists<Account>(txn_sender);
-        aborts_if global<Account>(txn_sender).authentication_key == DUMMY_AUTH_KEY && Authenticator::spec_derived_address(Hash::sha3_256(txn_authentication_key_preimage)) != txn_sender;
-        aborts_if global<Account>(txn_sender).authentication_key != DUMMY_AUTH_KEY && Hash::sha3_256(txn_authentication_key_preimage) != global<Account>(txn_sender).authentication_key;
-        aborts_if txn_gas_price * txn_max_gas_units > max_u64();
-        aborts_if txn_gas_price * txn_max_gas_units > 0 && !exists<Balance<TokenType>>(txn_sender);
-        aborts_if txn_gas_price * txn_max_gas_units > 0 && Token::spec_token_code<TokenType>() != Token::spec_token_code<STC>();
-        //abort condition for assert!(balance_amount >= max_transaction_fee)
-        aborts_if txn_gas_price * txn_max_gas_units > 0 && global<Balance<TokenType>>(txn_sender).token.value < txn_gas_price * txn_max_gas_units;
-        aborts_if txn_gas_price * txn_max_gas_units > 0 && txn_sequence_number >= max_u64();
+
+        let sender_uses_dummy = global<Account>(txn_sender).authentication_key == DUMMY_AUTH_KEY;
+        aborts_if if (sender_uses_dummy) {
+            Authenticator::spec_derived_address(Hash::sha3_256(txn_authentication_key_preimage)) != txn_sender
+        } else {
+            Hash::sha3_256(txn_authentication_key_preimage) != global<Account>(txn_sender).authentication_key
+        };
+        let max_transaction_fee = txn_gas_price * txn_max_gas_units;
+        let pos = max_transaction_fee > 0;
+        aborts_if max_transaction_fee > MAX_U64;
+        aborts_if pos && !exists<Balance<TokenType>>(txn_sender);
+        //aborts_if pos && Token::spec_token_code<TokenType>() != Token::spec_token_code<STC>(); // OOM
+        // abort condition for assert!(balance_amount >= max_transaction_fee)
+        aborts_if pos && global<Balance<TokenType>>(txn_sender).token.value < max_transaction_fee;
+        aborts_if pos && txn_sequence_number >= MAX_U64;
         aborts_if txn_sequence_number < global<Account>(txn_sender).sequence_number;
-        aborts_if txn_sequence_number != global<Account>(txn_sender).sequence_number;
     }
 
     /// The epilogue is invoked at the end of transactions.
@@ -929,7 +1043,24 @@ module Account {
     }
 
     spec txn_epilogue {
-        pragma verify = false;
+        pragma aborts_if_is_partial;
+
+        // Same spec as callee
+        aborts_if Signer::address_of(account) != CoreAddresses::SPEC_GENESIS_ADDRESS();
+        aborts_if !exists<Account>(txn_sender);
+        aborts_if !exists<Balance<TokenType>>(txn_sender);
+        aborts_if txn_max_gas_units < gas_units_remaining;
+        let transaction_fee_amount = txn_gas_price * (txn_max_gas_units - gas_units_remaining);
+        aborts_if transaction_fee_amount > MAX_U128;
+        aborts_if global<Balance<TokenType>>(txn_sender).token.value < transaction_fee_amount;
+        aborts_if txn_sequence_number + 1 > MAX_U64;
+
+        let fee = txn_gas_price * (txn_max_gas_units - gas_units_remaining);
+        let pos = fee > 0;
+
+        aborts_if pos && global<Balance<TokenType>>(txn_sender).token.value  < fee;
+        aborts_if pos && !exists<TransactionFee::TransactionFee<TokenType>>(CoreAddresses::SPEC_GENESIS_ADDRESS());
+        aborts_if pos && global<TransactionFee::TransactionFee<TokenType>>(CoreAddresses::SPEC_GENESIS_ADDRESS()).fee.value + fee > MAX_U128;
     }
 
     /// The epilogue is invoked at the end of transactions.
@@ -950,7 +1081,7 @@ module Account {
         let sender_balance = borrow_global_mut<Balance<TokenType>>(txn_sender);
 
         // Charge for gas
-        let transaction_fee_amount =(txn_gas_price * (txn_max_gas_units - gas_units_remaining) as u128);
+        let transaction_fee_amount = (txn_gas_price * (txn_max_gas_units - gas_units_remaining) as u128);
         assert!(
             balance_for(sender_balance) >= transaction_fee_amount,
             Errors::limit_exceeded(EINSUFFICIENT_BALANCE)
@@ -972,21 +1103,23 @@ module Account {
     }
 
     spec txn_epilogue_v2 {
-        pragma verify = false; // Todo: fix me, cost too much time
+        pragma aborts_if_is_partial;
+
         aborts_if Signer::address_of(account) != CoreAddresses::SPEC_GENESIS_ADDRESS();
         aborts_if !exists<Account>(txn_sender);
         aborts_if !exists<Balance<TokenType>>(txn_sender);
         aborts_if txn_max_gas_units < gas_units_remaining;
         let transaction_fee_amount = txn_gas_price * (txn_max_gas_units - gas_units_remaining);
-        aborts_if transaction_fee_amount > max_u128();
+        aborts_if transaction_fee_amount > MAX_U128;
         aborts_if global<Balance<TokenType>>(txn_sender).token.value < transaction_fee_amount;
-        aborts_if txn_sequence_number + 1 > max_u64();
-        aborts_if txn_gas_price * (txn_max_gas_units - gas_units_remaining) > 0 &&
-                global<Balance<TokenType>>(txn_sender).token.value  < txn_gas_price * (txn_max_gas_units - gas_units_remaining);
-        aborts_if txn_gas_price * (txn_max_gas_units - gas_units_remaining) > 0 &&
-                !exists<TransactionFee::TransactionFee<TokenType>>(CoreAddresses::SPEC_GENESIS_ADDRESS());
-        aborts_if txn_gas_price * (txn_max_gas_units - gas_units_remaining) > 0 &&
-                global<TransactionFee::TransactionFee<TokenType>>(CoreAddresses::SPEC_GENESIS_ADDRESS()).fee.value + txn_gas_price * (txn_max_gas_units - gas_units_remaining) > max_u128();
+        aborts_if txn_sequence_number + 1 > MAX_U64;
+
+        let fee = txn_gas_price * (txn_max_gas_units - gas_units_remaining);
+        let pos = fee > 0;
+
+        aborts_if pos && global<Balance<TokenType>>(txn_sender).token.value  < fee;
+        aborts_if pos && !exists<TransactionFee::TransactionFee<TokenType>>(CoreAddresses::SPEC_GENESIS_ADDRESS());
+        aborts_if pos && global<TransactionFee::TransactionFee<TokenType>>(CoreAddresses::SPEC_GENESIS_ADDRESS()).fee.value + fee > MAX_U128;
     }
 }
 
