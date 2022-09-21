@@ -56,11 +56,12 @@ module Block {
         aborts_if !Timestamp::is_genesis();
         aborts_if Signer::address_of(account) != CoreAddresses::SPEC_GENESIS_ADDRESS();
         aborts_if exists<BlockMetadata>(Signer::address_of(account));
+        ensures exists<BlockMetadata>(Signer::address_of(account));
     }
 
     /// Get the current block number
     public fun get_current_block_number(): u64 acquires BlockMetadata {
-      borrow_global<BlockMetadata>(CoreAddresses::GENESIS_ADDRESS()).number
+        borrow_global<BlockMetadata>(CoreAddresses::GENESIS_ADDRESS()).number
     }
 
     spec get_current_block_number {
@@ -69,7 +70,7 @@ module Block {
 
     /// Get the hash of the parent block.
     public fun get_parent_hash(): vector<u8> acquires BlockMetadata {
-      *&borrow_global<BlockMetadata>(CoreAddresses::GENESIS_ADDRESS()).parent_hash
+        *&borrow_global<BlockMetadata>(CoreAddresses::GENESIS_ADDRESS()).parent_hash
     }
 
     spec get_parent_hash {
@@ -78,7 +79,7 @@ module Block {
 
     /// Gets the address of the author of the current block
     public fun get_current_author(): address acquires BlockMetadata {
-      borrow_global<BlockMetadata>(CoreAddresses::GENESIS_ADDRESS()).author
+        borrow_global<BlockMetadata>(CoreAddresses::GENESIS_ADDRESS()).author
     }
 
     spec get_current_author {
