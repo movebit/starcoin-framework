@@ -9,8 +9,8 @@ module ConsensusConfig {
     use StarcoinFramework::Math;
 
     spec module {
-        pragma verify = false; // break after enabling v2 compilation scheme
-        pragma aborts_if_is_strict;
+        pragma verify = true;
+        pragma aborts_if_is_strict = true;
     }
 
     /// consensus configurations.
@@ -155,14 +155,27 @@ module ConsensusConfig {
     public fun uncle_rate_target(config: &ConsensusConfig): u64 {
         config.uncle_rate_target
     }
+
+    spec uncle_rate_target {
+        aborts_if false;
+    }
+
     /// Get base_block_time_target
     public fun base_block_time_target(config: &ConsensusConfig): u64 {
         config.base_block_time_target
     }
 
+    spec base_block_time_target {
+        aborts_if false;
+    }
+
     /// Get base_reward_per_block
     public fun base_reward_per_block(config: &ConsensusConfig): u128 {
         config.base_reward_per_block
+    }
+
+    spec base_reward_per_block {
+        aborts_if false;
     }
     
     /// Get epoch_block_count
@@ -170,9 +183,17 @@ module ConsensusConfig {
         config.epoch_block_count
     }
 
+    spec epoch_block_count {
+        aborts_if false;
+    }
+
     /// Get base_block_difficulty_window
     public fun base_block_difficulty_window(config: &ConsensusConfig): u64 {
         config.base_block_difficulty_window
+    }
+
+    spec base_block_difficulty_window {
+        aborts_if false;
     }
 
     /// Get base_reward_per_uncle_percent
@@ -180,9 +201,17 @@ module ConsensusConfig {
         config.base_reward_per_uncle_percent
     }
 
+    spec base_reward_per_uncle_percent {
+        aborts_if false;
+    }
+
     /// Get min_block_time_target
     public fun min_block_time_target(config: &ConsensusConfig): u64 {
         config.min_block_time_target
+    }
+
+    spec min_block_time_target {
+        aborts_if false;
     }
 
     /// Get max_block_time_target
@@ -190,9 +219,17 @@ module ConsensusConfig {
         config.max_block_time_target
     }
 
+    spec max_block_time_target {
+        aborts_if false;
+    }
+
     /// Get base_max_uncles_per_block
     public fun base_max_uncles_per_block(config: &ConsensusConfig): u64 {
         config.base_max_uncles_per_block
+    }
+
+    spec base_max_uncles_per_block {
+        aborts_if false;
     }
 
     /// Get base_block_gas_limit
@@ -200,9 +237,17 @@ module ConsensusConfig {
         config.base_block_gas_limit
     }
 
+    spec base_block_gas_limit {
+        aborts_if false;
+    }
+
     /// Get strategy
     public fun strategy(config: &ConsensusConfig): u8 {
         config.strategy
+    }
+
+    spec strategy {
+        aborts_if false;
     }
 
     /// Compute block reward given the `new_epoch_block_time_target`.
