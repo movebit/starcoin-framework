@@ -8,7 +8,7 @@ module MintDaoProposal {
     use StarcoinFramework::Errors;
 
     spec module {
-        pragma verify = false; // break after enabling v2 compilation scheme
+        pragma verify = true; // break after enabling v2 compilation scheme
         pragma aborts_if_is_strict;
         pragma aborts_if_is_partial;
     }
@@ -59,7 +59,7 @@ module MintDaoProposal {
     spec propose_mint_to {
         use StarcoinFramework::Timestamp;
         use StarcoinFramework::CoreAddresses;
-        pragma aborts_if_is_partial = false;
+        pragma aborts_if_is_partial = true;
 
         // copy from Dao::propose spec.
         include Dao::AbortIfDaoConfigNotExist<TokenT>;
