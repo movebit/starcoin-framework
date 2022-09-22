@@ -8,7 +8,12 @@ module StarcoinFramework::MerkleProof {
         let computed_hash = leaf;
         let i = 0;
         let proof_length = Vector::length(proof);
-        while (i < proof_length) {
+        while ({
+            spec {
+                invariant i <= proof_length;
+            };
+            i < proof_length
+        }) {
             let sibling = Vector::borrow(proof, i);
             // computed_hash is left.
             if (Compare::cmp_bytes( &computed_hash, sibling) < 2) {
@@ -24,9 +29,19 @@ module StarcoinFramework::MerkleProof {
         &computed_hash == root
     }
 
+    spec verify {
+        pragma addition_overflow_unchecked;
+        aborts_if false;
+    }
+
     fun concat(v1: vector<u8>, v2: vector<u8>): vector<u8> {
-        Vector::append( &mut v1, v2);
+        Vector::append(&mut v1, v2);
         v1
+    }
+
+    spec concat {
+        // ensures result == ::concat<u8>(v1,v2);  // It shadows move builtin function
+        aborts_if false;
     }
 }
 
@@ -54,8 +69,13 @@ module StarcoinFramework::MerkleNFTDistributor {
         };
         let claimed_bitmap = Vector::empty();
         let j = 0;
-        while (j < bitmap_count) {
-            Vector::push_back( &mut claimed_bitmap, 0u128);
+        while ({
+            spec {
+                invariant j <= bitmap_count;
+            };
+            j < bitmap_count
+        }) {
+            Vector::push_back(&mut claimed_bitmap, 0u128);
             j = j + 1;
         };
         let distribution = MerkleNFTDistribution<NFTMeta>{
@@ -67,25 +87,33 @@ module StarcoinFramework::MerkleNFTDistributor {
         NFT::remove_mint_capability<NFTMeta>(signer)
     }
 
+    spec register {
+        pragma addition_overflow_unchecked;
+        pragma aborts_if_is_partial;
+    }
+
     public fun mint_with_cap<NFTMeta: copy + store + drop, NFTBody: store, Info: copy + store + drop>(sender: &signer, cap:&mut MintCapability<NFTMeta>, creator: address, index: u64, base_meta: Metadata, type_meta: NFTMeta, body: NFTBody, merkle_proof:vector<vector<u8>>): NFT<NFTMeta, NFTBody>
-        acquires MerkleNFTDistribution {
-            let addr = Signer::address_of(sender);
-            let distribution = borrow_global_mut<MerkleNFTDistribution<NFTMeta>>(creator);
-            let minted = is_minted_<NFTMeta>(distribution, index);
-            assert!(!minted, Errors::custom(ALREADY_MINTED));
-            let leaf_data = encode_leaf(&index, &addr);
-            let verified = MerkleProof::verify(&merkle_proof, &distribution.merkle_root, Hash::sha3_256(leaf_data));
-            assert!(verified, Errors::custom(INVALID_PROOF));
-            set_minted_(distribution, index);
-            let nft = NFT::mint_with_cap<NFTMeta, NFTBody, Info>(creator, cap, base_meta, type_meta, body);
-            return nft
-        }
+    acquires MerkleNFTDistribution {
+        let addr = Signer::address_of(sender);
+        let distribution = borrow_global_mut<MerkleNFTDistribution<NFTMeta>>(creator);
+        let minted = is_minted_<NFTMeta>(distribution, index);
+        assert!(!minted, Errors::custom(ALREADY_MINTED));
+        let leaf_data = encode_leaf(&index, &addr);
+        let verified = MerkleProof::verify(&merkle_proof, &distribution.merkle_root, Hash::sha3_256(leaf_data));
+        assert!(verified, Errors::custom(INVALID_PROOF));
+        set_minted_(distribution, index);
+        let nft = NFT::mint_with_cap<NFTMeta, NFTBody, Info>(creator, cap, base_meta, type_meta, body);
+        return nft
+    }
 
     fun encode_leaf(index: &u64, account: &address): vector<u8> {
         let leaf = Vector::empty();
         Vector::append(&mut leaf, BCS::to_bytes(index));
         Vector::append(&mut leaf, BCS::to_bytes(account));
         leaf
+    }
+    spec encode_leaf {
+        aborts_if false;
     }
 
     fun set_minted_<NFTMeta: copy + store + drop>(distribution: &mut MerkleNFTDistribution<NFTMeta>, index: u64) {
@@ -98,17 +126,17 @@ module StarcoinFramework::MerkleNFTDistributor {
     }
 
     public fun verify_proof<NFTMeta: copy + store + drop>(account: address, creator: address, index: u64, merkle_proof:vector<vector<u8>>): bool
-        acquires MerkleNFTDistribution {
-            let distribution = borrow_global_mut<MerkleNFTDistribution<NFTMeta>>(creator);
-            let leaf_data = encode_leaf(&index, &account);
-            MerkleProof::verify(&merkle_proof, &distribution.merkle_root, Hash::sha3_256(leaf_data))
-        }
+    acquires MerkleNFTDistribution {
+        let distribution = borrow_global_mut<MerkleNFTDistribution<NFTMeta>>(creator);
+        let leaf_data = encode_leaf(&index, &account);
+        MerkleProof::verify(&merkle_proof, &distribution.merkle_root, Hash::sha3_256(leaf_data))
+    }
 
     public fun is_minted<NFTMeta: copy + store + drop>(creator: address, index: u64): bool
-        acquires MerkleNFTDistribution {
-            let distribution = borrow_global_mut<MerkleNFTDistribution<NFTMeta>>(creator);
-            is_minted_<NFTMeta>(distribution, index)
-        }
+    acquires MerkleNFTDistribution {
+        let distribution = borrow_global_mut<MerkleNFTDistribution<NFTMeta>>(creator);
+        is_minted_<NFTMeta>(distribution, index)
+    }
 
     fun is_minted_<NFTMeta: copy + store + drop>(distribution: &MerkleNFTDistribution<NFTMeta>, index: u64): bool {
         let claimed_word_index = index / 128;
@@ -117,5 +145,4 @@ module StarcoinFramework::MerkleNFTDistributor {
         let mask = 1u128 << claimed_bit_index;
         (*word & mask) == mask
     }
-
 }
