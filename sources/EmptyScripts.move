@@ -3,12 +3,12 @@ address StarcoinFramework {
     module EmptyScripts {
 
         spec module {
-            pragma verify = false;
-            pragma aborts_if_is_partial = false;
-            pragma aborts_if_is_strict = false;
+            pragma verify = true;
+            pragma aborts_if_is_strict = true;
         }
 
-        public(script) fun empty_script() {
-        }
+        public(script) fun empty_script() {}
+
+        spec empty_script {}
     }
 }
