@@ -13,8 +13,8 @@ module Epoch {
     use StarcoinFramework::ConsensusConfig::{Self, ConsensusConfig};
 
     spec module {
-        pragma verify;
-        pragma aborts_if_is_strict;
+        pragma verify = true;
+        pragma aborts_if_is_strict = true;
     }
 
     /// Current epoch info.
@@ -144,7 +144,10 @@ module Epoch {
     }
 
     spec compute_next_block_time_target {
-        pragma verify = false;
+        pragma aborts_if_is_partial;
+
+        ensures result >= config.min_block_time_target;
+        ensures result <= config.max_block_time_target;
     }
 
     /// adjust_epoch try to advance to next epoch if current epoch ends.
@@ -159,14 +162,22 @@ module Epoch {
         let (new_epoch, reward_per_block) = if (block_number < epoch_ref.end_block_number) {
             (false, epoch_ref.reward_per_block)
         } else if (block_number == epoch_ref.end_block_number) {
-            //start a new epoch
+            // start a new epoch
             assert!(uncles == 0, Errors::invalid_argument(EINVALID_UNCLES_COUNT));
             // block time target unit is milli_seconds.
             let now_milli_seconds = timestamp;
 
             let config = ConsensusConfig::get_config();
             let last_epoch_time_target = epoch_ref.block_time_target;
-            let new_epoch_block_time_target = compute_next_block_time_target(&config, last_epoch_time_target, epoch_ref.start_time, now_milli_seconds, epoch_ref.start_block_number, epoch_ref.end_block_number, epoch_data.uncles);
+            let new_epoch_block_time_target = compute_next_block_time_target(
+                &config, 
+                last_epoch_time_target, 
+                epoch_ref.start_time, 
+                now_milli_seconds, 
+                epoch_ref.start_block_number, 
+                epoch_ref.end_block_number, 
+                epoch_data.uncles,
+            );
             let new_reward_per_block = ConsensusConfig::do_compute_reward_per_block(&config, new_epoch_block_time_target);
 
             //update epoch by adjust result or config, because ConsensusConfig may be updated.
@@ -197,13 +208,13 @@ module Epoch {
     }
 
     spec adjust_epoch {
-        pragma verify = false; //timeout
-        aborts_if Signer::address_of(account) != CoreAddresses::SPEC_GENESIS_ADDRESS();
-        aborts_if !exists<Epoch>(Signer::address_of(account));
-        aborts_if global<Epoch>(Signer::address_of(account)).max_uncles_per_block < uncles;
-        aborts_if exists<EpochData>(Signer::address_of(account));
+        let addr = Signer::address_of(account);
+        aborts_if addr != CoreAddresses::GENESIS_ADDRESS();
+        aborts_if !exists<Epoch>(addr);
+        aborts_if global<Epoch>(addr).max_uncles_per_block < uncles;
         aborts_if block_number == global<Epoch>(Signer::address_of(account)).end_block_number && uncles != 0;
-        // ...
+        // Nonexhaustive aborts conditions
+        pragma aborts_if_is_partial;
     }
 
     fun adjust_gas_limit(config: &ConsensusConfig, epoch_ref: &mut Epoch, last_epoch_time_target: u64, new_epoch_time_target: u64, last_epoch_total_gas:u128) {
