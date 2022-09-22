@@ -8,9 +8,8 @@ module OnChainConfigDao {
     use StarcoinFramework::Errors;
 
     spec module {
-        pragma verify = false; // break after enabling v2 compilation scheme
-        pragma aborts_if_is_strict;
-        pragma aborts_if_is_partial;
+        pragma verify = true;
+        pragma aborts_if_is_strict = true;
     }
 
     /// A wrapper of `Config::ModifyConfigCapability<ConfigT>`.
@@ -38,8 +37,9 @@ module OnChainConfigDao {
         pragma aborts_if_is_partial = false;
         let sender = Signer::address_of(signer);
         aborts_if sender != Token::SPEC_TOKEN_TEST_ADDRESS();
-        include Config::AbortsIfCapNotExist<ConfigT>{account: sender};
+        include Config::AbortsIfCapNotExist<ConfigT>{address: sender};
         aborts_if exists<WrappedConfigModifyCapability<TokenT, ConfigT>>(sender);
+        // aborts_if exists<f>(sender);
         ensures exists<WrappedConfigModifyCapability<TokenT, ConfigT>>(sender);
     }
 
@@ -59,7 +59,7 @@ module OnChainConfigDao {
     spec propose_update {
         use StarcoinFramework::Timestamp;
         use StarcoinFramework::CoreAddresses;
-        pragma aborts_if_is_partial = false;
+        pragma aborts_if_is_partial = true;
 
         // copy from Dao::propose spec.
         include Dao::AbortIfDaoConfigNotExist<TokenT>;
