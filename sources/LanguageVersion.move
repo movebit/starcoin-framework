@@ -1,5 +1,10 @@
 address StarcoinFramework {
 module LanguageVersion {
+    spec module {
+        pragma verify;
+        pragma aborts_if_is_strict;
+    }
+
     struct LanguageVersion has copy, drop, store {
         major: u64,
     }
@@ -7,16 +12,17 @@ module LanguageVersion {
     public fun new(version: u64): LanguageVersion {
         LanguageVersion {major: version}
     }
+    spec new {
+        aborts_if false;
+        ensures result.major == version;
+    }
 
     public fun version(version: &LanguageVersion): u64 {
         version.major
     }
-
-    spec new {
-        pragma verify = false;
-    }
     spec version {
-        pragma verify = false;
+        aborts_if false;
+        ensures result == version.major;
     }
 }
 }
