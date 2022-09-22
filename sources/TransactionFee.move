@@ -50,6 +50,8 @@ module TransactionFee {
      }
 
     spec add_txn_fee_token {
+        // This function is private. But we probably need a better way to specify who can invoke
+        // it in the spec.
         aborts_if exists<TransactionFee<TokenType>>(Signer::address_of(account));
     }
 
@@ -62,8 +64,9 @@ module TransactionFee {
     }
 
     spec pay_fee {
-        aborts_if !exists<TransactionFee<TokenType>>(CoreAddresses::SPEC_GENESIS_ADDRESS());
-        aborts_if global<TransactionFee<TokenType>>(CoreAddresses::SPEC_GENESIS_ADDRESS()).fee.value + token.value > max_u128();
+        let addr = CoreAddresses::SPEC_GENESIS_ADDRESS();
+        aborts_if !exists<TransactionFee<TokenType>>(addr);
+        aborts_if global<TransactionFee<TokenType>>(addr).fee.value + token.value > max_u128();
     }
 
     /// Distribute the transaction fees collected in the `TokenType` token.
@@ -72,7 +75,7 @@ module TransactionFee {
     public fun distribute_transaction_fees<TokenType: store>(
         account: &signer,
     ): Token<TokenType> acquires TransactionFee {
-        let fee_address =  CoreAddresses::GENESIS_ADDRESS();
+        let fee_address = CoreAddresses::GENESIS_ADDRESS();
         CoreAddresses::assert_genesis_address(account);
 
         // extract fees
@@ -80,16 +83,18 @@ module TransactionFee {
         let value = Token::value<TokenType>(&txn_fees.fee);
         if (value > 0) {
             Token::withdraw(&mut txn_fees.fee, value)
-        }else {
+        } else {
             Token::zero<TokenType>()
         }
     }
 
     spec distribute_transaction_fees {
         pragma verify = false;
-//        aborts_if Signer::address_of(account) != CoreAddresses::SPEC_GENESIS_ADDRESS();
-//        aborts_if !exists<TransactionFee<TokenType>>(CoreAddresses::SPEC_GENESIS_ADDRESS());
-
+        let fee_addr = CoreAddresses::SPEC_GENESIS_ADDRESS();
+        aborts_if Signer::address_of(account) != fee_addr;
+        aborts_if !exists<TransactionFee<TokenType>>(fee_addr);
+        // Better if we can specify the amount more accurately
+        ensures result.value >= 0;
     }
  }
 }

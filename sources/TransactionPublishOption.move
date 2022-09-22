@@ -9,10 +9,10 @@ module TransactionPublishOption {
     use StarcoinFramework::Signer;
 
     spec module {
-        pragma verify = false; // break after enabling v2 compilation scheme
-        pragma aborts_if_is_strict = true;
-
+        pragma verify;
+        pragma aborts_if_is_strict;
     }
+
     spec fun spec_is_script_allowed(addr: address) : bool{
         let publish_option = Config::get_by_address<TransactionPublishOption>(addr);
         publish_option.script_allowed
@@ -33,9 +33,12 @@ module TransactionPublishOption {
     const EALLOWLIST_ALREADY_CONTAINS_SCRIPT: u64 = 1002;
 
     /// Defines and holds the publishing policies for the VM. There are three possible configurations:
-    /// 1.  !script_allowed && !module_publishing_allowed No module publishing, only script function in module are allowed.
-    /// 2.  script_allowed && !module_publishing_allowed No module publishing, custom scripts are allowed.
-    /// 3.  script_allowed && module_publishing_allowed Both module publishing and custom scripts are allowed.
+    /// 1. !script_allowed && !module_publishing_allowed:
+    ///         No module publishing, only script function in module are allowed.
+    /// 2.  script_allowed && !module_publishing_allowed:
+    ///         No module publishing, custom scripts are allowed.
+    /// 3.  script_allowed && module_publishing_allowed 
+    ///         Both module publishing and custom scripts are allowed.
     /// We represent these as the following resource.
     struct TransactionPublishOption has copy, drop, store {
         // Anyone can use script if this flag is set to true.
@@ -43,6 +46,11 @@ module TransactionPublishOption {
         // Anyone can publish new module if this flag is set to true.
         module_publishing_allowed: bool,
     }
+
+    // TODO: The invariant should be provable
+    // spec TransactionPublishOption {
+    //     invariant script_allowed || !module_publishing_allowed;
+    // }
 
     /// Module initialization.
     public fun initialize(
@@ -55,7 +63,10 @@ module TransactionPublishOption {
             Signer::address_of(account) == CoreAddresses::GENESIS_ADDRESS(),
             Errors::requires_address(EPROLOGUE_ACCOUNT_DOES_NOT_EXIST),
         );
-        let transaction_publish_option = Self::new_transaction_publish_option(script_allowed, module_publishing_allowed);
+        let transaction_publish_option = Self::new_transaction_publish_option(
+            script_allowed, 
+            module_publishing_allowed
+        );
         Config::publish_new_config(
             account,
             transaction_publish_option,
@@ -64,7 +75,7 @@ module TransactionPublishOption {
 
     spec initialize {
         aborts_if !Timestamp::is_genesis();
-        aborts_if Signer::address_of(account) != CoreAddresses::SPEC_GENESIS_ADDRESS();
+        aborts_if Signer::address_of(account) != CoreAddresses::GENESIS_ADDRESS();
         include Config::PublishNewConfigAbortsIf<TransactionPublishOption>;
         include Config::PublishNewConfigEnsures<TransactionPublishOption>;
     }
@@ -107,13 +118,14 @@ module TransactionPublishOption {
 
     spec schema AbortsIfTxnPublishOptionNotExist {
         include Config::AbortsIfConfigNotExist<TransactionPublishOption>{
-            addr: CoreAddresses::SPEC_GENESIS_ADDRESS()
+            addr: CoreAddresses::GENESIS_ADDRESS()
         };
     }
 
     spec schema AbortsIfTxnPublishOptionNotExistWithBool {
         is_script_or_package : bool;
-        aborts_if is_script_or_package && !exists<Config::Config<TransactionPublishOption>>(CoreAddresses::GENESIS_ADDRESS());
+        aborts_if is_script_or_package && 
+            !Config::spec_exists<TransactionPublishOption>(CoreAddresses::GENESIS_ADDRESS());
     }
 
 }

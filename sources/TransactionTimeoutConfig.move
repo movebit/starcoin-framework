@@ -7,8 +7,8 @@ module TransactionTimeoutConfig {
     use StarcoinFramework::Signer;
 
     spec module {
-        pragma verify = false;
-        pragma aborts_if_is_strict = true;
+        pragma verify;
+        pragma aborts_if_is_strict;
     }
 
     /// config structs.
@@ -30,14 +30,14 @@ module TransactionTimeoutConfig {
 
     spec initialize {
         aborts_if !Timestamp::is_genesis();
-        aborts_if Signer::address_of(account) != CoreAddresses::SPEC_GENESIS_ADDRESS();
+        aborts_if Signer::address_of(account) != CoreAddresses::GENESIS_ADDRESS();
         include Config::PublishNewConfigAbortsIf<TransactionTimeoutConfig>;
         include Config::PublishNewConfigEnsures<TransactionTimeoutConfig>;
     }
 
     /// Create a new timeout config used in dao proposal.
     public fun new_transaction_timeout_config(duration_seconds: u64) : TransactionTimeoutConfig {
-        TransactionTimeoutConfig {duration_seconds: duration_seconds}
+        TransactionTimeoutConfig { duration_seconds }
     }
 
     spec new_transaction_timeout_config {
@@ -50,26 +50,25 @@ module TransactionTimeoutConfig {
     }
 
     spec get_transaction_timeout_config {
-        include Config::AbortsIfConfigNotExist<TransactionTimeoutConfig>{
-            addr: CoreAddresses::GENESIS_ADDRESS()
-        };
+        let addr = CoreAddresses::SPEC_GENESIS_ADDRESS();
+        include Config::AbortsIfConfigNotExist<TransactionTimeoutConfig>;
+        ensures result == Config::get_by_address<TransactionTimeoutConfig>(addr);
     }
 
     /// Get current txn timeout in seconds.
     public fun duration_seconds() :u64 {
-        let config = get_transaction_timeout_config();
-        config.duration_seconds
+        get_transaction_timeout_config().duration_seconds
     }
 
     spec duration_seconds {
-        include Config::AbortsIfConfigNotExist<TransactionTimeoutConfig>{
-            addr: CoreAddresses::GENESIS_ADDRESS()
-        };
+        let addr = CoreAddresses::SPEC_GENESIS_ADDRESS();
+        include Config::AbortsIfConfigNotExist<TransactionTimeoutConfig>;
+        ensures result == Config::get_by_address<TransactionTimeoutConfig>(addr).duration_seconds;
     }
 
     spec schema AbortsIfTxnTimeoutConfigNotExist {
         include Config::AbortsIfConfigNotExist<TransactionTimeoutConfig>{
-            addr: CoreAddresses::GENESIS_ADDRESS()
+            addr: CoreAddresses::SPEC_GENESIS_ADDRESS()
         };
     }
 }
