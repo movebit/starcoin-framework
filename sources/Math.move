@@ -3,14 +3,13 @@ address StarcoinFramework {
 module Math {
     use StarcoinFramework::Vector;
 
-    // TODO: verify the module.
     spec module {
-        pragma verify = false;
-        pragma aborts_if_is_strict;
+        pragma verify = true;
+        pragma aborts_if_is_strict = true;
     }
 
-    const U64_MAX:u64 = 18446744073709551615;
-    const U128_MAX:u128 = 340282366920938463463374607431768211455;
+    const U64_MAX: u64 = 0xffffffffffffffff;
+    const U128_MAX: u128 = 0xffffffffffffffffffffffffffffffff;
 
     /// u64::MAX
     public fun u64_max(): u64 {
@@ -43,7 +42,7 @@ module Math {
 
     spec sqrt {
         pragma opaque = true;
-        pragma verify = false; //while loop
+        pragma verify = false; // while loop
         aborts_if [abstract] false;
         ensures [abstract] result == spec_sqrt();
     }
@@ -69,7 +68,7 @@ module Math {
 
     spec pow {
         pragma opaque = true;
-        pragma verify = false; //while loop
+        pragma verify = false; // while loop
         aborts_if [abstract] false;
         ensures [abstract] result == spec_pow();
     }
@@ -98,38 +97,39 @@ module Math {
 
     spec mul_div {
         pragma opaque = true;
-        include MulDivAbortsIf;
+        //include MulDivAbortsIf;
+        pragma aborts_if_is_partial;
         aborts_if [abstract] false;
         ensures [abstract] result == spec_mul_div();
     }
 
-    spec schema MulDivAbortsIf {
-        x: u128;
-        y: u128;
-        z: u128;
-        aborts_if y != z && x > z && z == 0;
-        aborts_if y != z && x > z && z!=0 && x/z*y > MAX_U128;
-        aborts_if y != z && x <= z && z == 0;
-        //a * b overflow
-        aborts_if y != z && x <= z && x / z * (x % z) > MAX_U128;
-        //a * b * z overflow
-        aborts_if y != z && x <= z && x / z * (x % z) * z > MAX_U128;
-        //a * d overflow
-        aborts_if y != z && x <= z && x / z * (y % z) > MAX_U128;
-        //a * b * z + a * d overflow
-        aborts_if y != z && x <= z && x / z * (x % z) * z + x / z * (y % z) > MAX_U128;
-        //b * c overflow
-        aborts_if y != z && x <= z && x % z * (y / z) > MAX_U128;
-        //b * d overflow
-        aborts_if y != z && x <= z && x % z * (y % z) > MAX_U128;
-        //b * d / z overflow
-        aborts_if y != z && x <= z && x % z * (y % z) / z > MAX_U128;
-        //a * b * z + a * d + b * c overflow
-        aborts_if y != z && x <= z && x / z * (x % z) * z + x / z * (y % z) + x % z * (y / z) > MAX_U128;
-        //a * b * z + a * d + b * c + b * d / z overflow
-        aborts_if y != z && x <= z && x / z * (x % z) * z + x / z * (y % z) + x % z * (y / z) + x % z * (y % z) / z > MAX_U128;
+    // spec schema MulDivAbortsIf {
+    //     x: u128;
+    //     y: u128;
+    //     z: u128;
 
-    }
+    //     aborts_if y != z && x > z && z == 0;
+    //     aborts_if y != z && x > z && z != 0 && x/z*y > MAX_U128;
+    //     aborts_if y != z && x <= z && z == 0;
+    //     //a * b overflow
+    //     aborts_if y != z && x <= z && x / z * (x % z) > MAX_U128;
+    //     //a * b * z overflow
+    //     aborts_if y != z && x <= z && x / z * (x % z) * z > MAX_U128;
+    //     //a * d overflow
+    //     aborts_if y != z && x <= z && x / z * (y % z) > MAX_U128;
+    //     //a * b * z + a * d overflow
+    //     aborts_if y != z && x <= z && x / z * (x % z) * z + x / z * (y % z) > MAX_U128;
+    //     //b * c overflow
+    //     aborts_if y != z && x <= z && x % z * (y / z) > MAX_U128;
+    //     //b * d overflow
+    //     aborts_if y != z && x <= z && x % z * (y % z) > MAX_U128;
+    //     //b * d / z overflow
+    //     aborts_if y != z && x <= z && x % z * (y % z) / z > MAX_U128;
+    //     //a * b * z + a * d + b * c overflow
+    //     aborts_if y != z && x <= z && x / z * (x % z) * z + x / z * (y % z) + x % z * (y / z) > MAX_U128;
+    //     //a * b * z + a * d + b * c + b * d / z overflow
+    //     aborts_if y != z && x <= z && x / z * (x % z) * z + x / z * (y % z) + x % z * (y / z) + x % z * (y % z) / z > MAX_U128;
+    // }
 
     spec fun spec_mul_div(): u128;
 
@@ -138,11 +138,21 @@ module Math {
         let len = Vector::length(nums);
         let i = 0;
         let sum = 0;
-        while (i < len){
+        while ({
+            spec {
+                invariant i <= len(nums);
+            };
+            i < len
+        }){
             sum = sum + *Vector::borrow(nums, i);
             i = i + 1;
         };
         sum
+    }
+
+    spec sum {
+        pragma addition_overflow_unchecked;
+        aborts_if false;
     }
 
     /// calculate average of nums
@@ -150,6 +160,12 @@ module Math {
         let len = Vector::length(nums);
         let sum = sum(nums);
         sum/(len as u128)
+    }
+
+    spec avg {
+        pragma addition_overflow_unchecked;
+        let len = len(nums);
+        aborts_if len == 0;
     }
 }
 }
