@@ -29,8 +29,9 @@ module Offer {
 
     spec create {
         include Timestamp::AbortsIfTimestampNotExists;
-        aborts_if Timestamp::now_seconds() + lock_period > max_u64();
+        aborts_if Timestamp::now_seconds() + lock_period > MAX_U64;
         aborts_if exists<Offer<Offered>>(Signer::address_of(account));
+        ensures exists<Offer<Offered>>(Signer::address_of(account));
     }
 
     /// Claim the value of type `Offered` published at `offer_address`.
@@ -66,7 +67,9 @@ module Offer {
         borrow_global<Offer<Offered>>(offer_address).for
     }
 
-    spec address_of {aborts_if !exists<Offer<Offered>>(offer_address);}
+    spec address_of {
+        aborts_if !exists<Offer<Offered>>(offer_address);
+    }
 
     /// Take Offer and put to signer's Collection<Offered>.
     public(script) fun take_offer<Offered: store>(
@@ -78,7 +81,11 @@ module Offer {
     }
 
     spec take_offer {
-        pragma verify = false;
+        pragma aborts_if_is_partial = true;
+        aborts_if !exists<Offer<Offered>>(offer_address);
+        aborts_if Signer::address_of(signer) != global<Offer<Offered>>(offer_address).for && Signer::address_of(signer) != offer_address;
+        aborts_if Timestamp::now_seconds() < global<Offer<Offered>>(offer_address).time_lock;
+        include Timestamp::AbortsIfTimestampNotExists;
     }
 }
 }
