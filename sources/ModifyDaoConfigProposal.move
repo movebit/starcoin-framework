@@ -10,9 +10,8 @@ module ModifyDaoConfigProposal {
     use StarcoinFramework::Option;
 
     spec module {
-        pragma verify = false; // break after enabling v2 compilation scheme
-        pragma aborts_if_is_strict;
-        pragma aborts_if_is_partial;
+        pragma verify = true;
+        pragma aborts_if_is_strict = true;
     }
 
     /// A wrapper of `Config::ModifyConfigCapability<Dao::DaoConfig<TokenT>>`.
@@ -50,10 +49,9 @@ module ModifyDaoConfigProposal {
     }
 
     spec plugin {
-        pragma aborts_if_is_partial = false;
         let sender = Signer::address_of(signer);
         aborts_if sender != Token::SPEC_TOKEN_TEST_ADDRESS();
-        include Config::AbortsIfCapNotExist<Dao::DaoConfig<TokenT>>{account: sender};
+        include Config::AbortsIfCapNotExist<Dao::DaoConfig<TokenT>>{address: sender};
         let config_cap = Config::spec_cap<Dao::DaoConfig<TokenT>>(sender);
         aborts_if Option::is_none(config_cap);
         aborts_if Option::borrow(config_cap).account_address != sender;
@@ -82,7 +80,7 @@ module ModifyDaoConfigProposal {
     spec propose {
         use StarcoinFramework::Timestamp;
         use StarcoinFramework::CoreAddresses;
-        pragma aborts_if_is_partial = false;
+        pragma aborts_if_is_partial = true;
         aborts_if voting_quorum_rate > 100;
 
         // copy from Dao::propose spec.
