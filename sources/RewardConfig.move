@@ -7,8 +7,8 @@ module RewardConfig {
     use StarcoinFramework::Config;
 
     spec module {
-        pragma verify = false;
-        pragma aborts_if_is_strict = true;
+        pragma verify;
+        pragma aborts_if_is_strict;
     }
 
     /// Reward configuration
@@ -40,10 +40,13 @@ module RewardConfig {
 
     /// Create a new reward config mainly used in DAO.
     public fun new_reward_config(reward_delay: u64) : RewardConfig {
-        RewardConfig {reward_delay: reward_delay}
+        RewardConfig {reward_delay}
     }
 
-    spec new_reward_config {}
+    spec new_reward_config {
+        aborts_if false;
+        ensures result.reward_delay == reward_delay;
+    }
 
     /// Get reward configuration.
     public fun get_reward_config(): RewardConfig {
@@ -51,21 +54,20 @@ module RewardConfig {
     }
 
     spec get_reward_config {
-        include GetRewardConfigAbortsIf;
-    }
-
-    spec schema GetRewardConfigAbortsIf {
-        aborts_if !exists<Config::Config<RewardConfig>>(CoreAddresses::GENESIS_ADDRESS());
+        let addr = CoreAddresses::GENESIS_ADDRESS();
+        aborts_if !Config::spec_exists<RewardConfig>(addr);
+        ensures result == Config::spec_get<RewardConfig>(addr);
     }
 
     /// Get reward delay.
     public fun reward_delay() :u64 {
-        let reward_config = get_reward_config();
-        reward_config.reward_delay
+        get_reward_config().reward_delay
     }
 
     spec reward_delay {
-        aborts_if !exists<Config::Config<RewardConfig>>(CoreAddresses::GENESIS_ADDRESS());
+        let addr = CoreAddresses::GENESIS_ADDRESS();
+        aborts_if !Config::spec_exists<RewardConfig>(addr);
+        ensures result == Config::spec_get<RewardConfig>(addr).reward_delay;
     }
 }
 }
