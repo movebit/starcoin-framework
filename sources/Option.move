@@ -8,7 +8,7 @@ module Option {
     /// Abstraction of a value that may or may not be present. Implemented with a vector of size
     /// zero or one because Move bytecode does not have ADTs.
     struct Option<Element> has copy, drop, store {
-    vec: vector<Element>
+        vec: vector<Element>
     }
     spec Option {
         /// The size of vector is always less than equal to 1
