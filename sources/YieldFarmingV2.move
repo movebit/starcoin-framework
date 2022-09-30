@@ -27,7 +27,8 @@ module YieldFarmingV2 {
     const EXP_MAX_SCALE: u128 = 9;
 
     spec module {
-        pragma verify = false;
+        pragma verify = true;
+        pragma aborts_if_is_strict = true;
     }
 
     //////////////////////////////////////////////////////////////////////
@@ -45,10 +46,19 @@ module YieldFarmingV2 {
         }
     }
 
+    spec exp_direct {
+        ensures result.mantissa == num;
+    }
+
     fun exp_direct_expand(num: u128): Exp {
         Exp {
             mantissa: mul_u128(num, EXP_SCALE)
         }
+    }
+
+    spec exp_direct_expand {
+        aborts_if num * EXP_SCALE > MAX_U128;
+        ensures result.mantissa == num * EXP_SCALE;
     }
 
 
@@ -56,10 +66,19 @@ module YieldFarmingV2 {
         a.mantissa
     }
 
+    spec mantissa {
+        ensures result == a.mantissa;
+    }
+
     fun add_exp(a: Exp, b: Exp): Exp {
         Exp {
             mantissa: add_u128(a.mantissa, b.mantissa)
         }
+    }
+
+    spec add_exp {
+        aborts_if a.mantissa + b.mantissa > MAX_U128;
+        ensures result.mantissa == a.mantissa + b.mantissa;
     }
 
     fun exp(num: u128, denom: u128): Exp {
@@ -71,12 +90,28 @@ module YieldFarmingV2 {
         }
     }
 
+    spec exp {
+        aborts_if num * EXP_SCALE > MAX_U128;
+        aborts_if denom == 0;
+        ensures result.mantissa == num * EXP_SCALE / denom;
+    }
+
     fun add_u128(a: u128, b: u128): u128 {
         a + b
     }
 
+    spec add_u128 {
+        aborts_if a + b > MAX_U128;
+        ensures result == a + b;
+    }
+
     fun sub_u128(a: u128, b: u128): u128 {
         a - b
+    }
+
+    spec sub_u128 {
+        aborts_if a < b;
+        ensures result == a - b;
     }
 
     fun mul_u128(a: u128, b: u128): u128 {
@@ -84,6 +119,11 @@ module YieldFarmingV2 {
             return 0
         };
         a * b
+    }
+
+    spec mul_u128 {
+        aborts_if a * b > MAX_U128;
+        ensures result == a * b;
     }
 
     fun div_u128(a: u128, b: u128): u128 {
@@ -96,8 +136,17 @@ module YieldFarmingV2 {
         a / b
     }
 
+    spec div_u128 {
+        aborts_if b == 0;
+        ensures result == a / b;
+    }
+
     fun truncate(exp: Exp): u128 {
         return exp.mantissa / EXP_SCALE
+    }
+
+    spec truncate {
+        ensures result == exp.mantissa / EXP_SCALE;
     }
 
     /// The object of yield farming
@@ -150,6 +199,13 @@ module YieldFarmingV2 {
         });
     }
 
+    spec initialize {
+        pragma aborts_if_is_partial = true;
+        aborts_if exists_at<PoolType, RewardTokenT>(Signer::address_of(signer));
+        aborts_if exists<Farming<PoolType, RewardTokenT>>(Signer::address_of(signer));
+        ensures exists<Farming<PoolType, RewardTokenT>>(Signer::address_of(signer));
+    }
+
     /// Add asset pools
     public fun add_asset<PoolType: store, AssetT: store>(
         signer: &signer,
@@ -170,6 +226,15 @@ module YieldFarmingV2 {
             alive: true
         });
         ParameterModifyCapability<PoolType, AssetT> {}
+    }
+
+    spec add_asset {
+        include Timestamp::AbortsIfTimestampNotExists;
+        aborts_if exists_asset_at<PoolType, AssetT>(Signer::address_of(signer));
+        aborts_if Timestamp::now_seconds() + delay > MAX_U64;
+        aborts_if exists<FarmingAsset<PoolType, AssetT>>(Signer::address_of(signer));
+        ensures exists<FarmingAsset<PoolType, AssetT>>(Signer::address_of(signer));
+        ensures result == ParameterModifyCapability<PoolType, AssetT> {};
     }
 
     /// Remove asset for make this pool to the state of not alive
@@ -212,6 +277,14 @@ module YieldFarmingV2 {
         farming_asset.alive = alive;
     }
 
+    spec modify_parameter {
+        let farming_asset = global<FarmingAsset<PoolType, AssetT>>(broker) ;
+        let now_seconds = Timestamp::now_seconds();
+        include Timestamp::AbortsIfTimestampNotExists;
+        aborts_if !alive;
+        aborts_if !exists<FarmingAsset<PoolType, AssetT>>(broker);
+    }
+
     /// Call by stake user, staking amount of asset in order to get yield farming token
     public fun stake<PoolType: store, RewardTokenT: store, AssetT: store>(
         signer: &signer,
@@ -225,6 +298,11 @@ module YieldFarmingV2 {
             AssetT>(signer, broker, asset, asset_weight, _cap);
 
         move_to(signer, harvest_cap);
+    }
+
+    spec stake {
+        pragma aborts_if_is_partial = true;
+        aborts_if exists<HarvestCapability<PoolType, AssetT>>(Signer::address_of(signer));
     }
 
     public fun stake_for_cap<PoolType: store, RewardTokenT: store, AssetT: store>(
@@ -273,6 +351,21 @@ module YieldFarmingV2 {
         HarvestCapability<PoolType, AssetT> { trigger: account }
     }
 
+    spec stake_for_cap {
+        include Timestamp::AbortsIfTimestampNotExists;
+        let farming_asset = global<FarmingAsset<PoolType, AssetT>>(broker);
+        let now_seconds = Timestamp::now_seconds();
+        let time_period = now_seconds - farming_asset.last_update_timestamp;
+        aborts_if exists<Stake<PoolType, AssetT>>(Signer::address_of(signer));
+        aborts_if !exists<FarmingAsset<PoolType, AssetT>>(broker);
+        aborts_if !farming_asset.alive;
+        aborts_if farming_asset.start_time > now_seconds;
+        aborts_if (farming_asset.asset_total_weight <= 0) && farming_asset.release_per_second * time_period > MAX_U128;
+        aborts_if (farming_asset.asset_total_weight > 0) && farming_asset.asset_total_weight + asset_weight > MAX_U128;
+        pragma aborts_if_is_partial = true;
+        ensures result == HarvestCapability<PoolType, AssetT> { trigger: Signer::address_of(signer) };
+    }
+
     /// Unstake asset from farming pool
     public fun unstake<PoolType: store, RewardTokenT: store, AssetT: store>(
         signer: &signer,
@@ -281,6 +374,12 @@ module YieldFarmingV2 {
         let account = Signer::address_of(signer);
         let cap = move_from<HarvestCapability<PoolType, AssetT>>(account);
         unstake_with_cap(broker, cap)
+    }
+
+    spec unstake {
+        pragma aborts_if_is_partial = true;
+        aborts_if !exists<HarvestCapability<PoolType, AssetT>>(Signer::address_of(signer));
+        ensures !exists<HarvestCapability<PoolType, AssetT>>(Signer::address_of(signer));
     }
 
     public fun unstake_with_cap<PoolType: store, RewardTokenT: store, AssetT: store>(
@@ -318,6 +417,19 @@ module YieldFarmingV2 {
         (asset, withdraw_token)
     }
 
+    spec unstake_with_cap {
+        pragma aborts_if_is_partial = true;
+        aborts_if !exists<Farming<PoolType, RewardTokenT>>(broker);
+        aborts_if !exists<FarmingAsset<PoolType, AssetT>>(broker);
+        aborts_if !exists<Stake<PoolType, AssetT>>(cap.trigger);
+        let farming_asset = global<FarmingAsset<PoolType, AssetT>>(broker);
+        let asset_weight = global<Stake<PoolType, AssetT>>(cap.trigger).asset_weight;
+
+        aborts_if farming_asset.asset_total_weight < asset_weight;
+
+        ensures !exists<Stake<PoolType, AssetT>>(cap.trigger);
+    }
+
     /// Harvest yield farming token from stake
     public fun harvest<PoolType: store,
                        RewardTokenT: store,
@@ -328,6 +440,11 @@ module YieldFarmingV2 {
         let account = Signer::address_of(signer);
         let cap = borrow_global_mut<HarvestCapability<PoolType, AssetT>>(account);
         harvest_with_cap(broker, amount, cap)
+    }
+
+    spec harvest {
+        aborts_if !exists<HarvestCapability<PoolType, AssetT>>(Signer::address_of(signer));
+        pragma aborts_if_is_partial = true;
     }
 
     public fun harvest_with_cap<PoolType: store,
@@ -371,6 +488,13 @@ module YieldFarmingV2 {
         withdraw_token
     }
 
+    spec harvest_with_cap {
+        aborts_if !exists<Farming<PoolType, RewardTokenT>>(broker);
+        aborts_if !exists<FarmingAsset<PoolType, AssetT>>(broker);
+        aborts_if !exists<Stake<PoolType, AssetT>>(_cap.trigger);
+        pragma aborts_if_is_partial = true;
+    }
+
     /// The user can quering all yield farming amount in any time and scene
     public fun query_gov_token_amount<PoolType: store,
                                       RewardTokenT: store,
@@ -392,6 +516,13 @@ module YieldFarmingV2 {
         stake.gain + new_gain
     }
 
+    spec query_gov_token_amount {
+        pragma aborts_if_is_partial = true;
+        aborts_if !exists<FarmingAsset<PoolType, AssetT>>(broker);
+        aborts_if !exists<Stake<PoolType, AssetT>>(account);
+        include Timestamp::AbortsIfTimestampNotExists;
+    }
+
     /// Query total stake count from yield farming resource
     public fun query_total_stake<PoolType: store,
                                  AssetT: store>(broker: address): u128 acquires FarmingAsset {
@@ -399,11 +530,23 @@ module YieldFarmingV2 {
         farming_asset.asset_total_weight
     }
 
+    spec query_total_stake {
+        aborts_if !exists<FarmingAsset<PoolType, AssetT>>(broker);
+        let farming_asset = global<FarmingAsset<PoolType, AssetT>>(broker);
+        ensures result == farming_asset.asset_total_weight;
+    }
+
     /// Query stake weight from user staking objects.
     public fun query_stake<PoolType: store,
                            AssetT: store>(account: address): u128 acquires Stake {
         let stake = borrow_global_mut<Stake<PoolType, AssetT>>(account);
         stake.asset_weight
+    }
+
+    spec query_stake {
+        aborts_if !exists<Stake<PoolType, AssetT>>(account);
+        let stake = global<Stake<PoolType, AssetT>>(account);
+        ensures result == stake.asset_weight;
     }
 
     /// Queyry pool info from pool type
@@ -416,6 +559,17 @@ module YieldFarmingV2 {
             asset.asset_total_weight,
             asset.harvest_index
         )
+    }
+
+    spec query_info {
+        aborts_if !exists<FarmingAsset<PoolType, AssetT>>(broker);
+        let asset = global<FarmingAsset<PoolType, AssetT>>(broker);
+        // ensures result == (
+        //     asset.alive,
+        //     asset.release_per_second,
+        //     asset.asset_total_weight,
+        //     asset.harvest_index
+        // );
     }
 
     /// Update farming asset
@@ -439,6 +593,19 @@ module YieldFarmingV2 {
         }
     }
 
+    spec calculate_harvest_index_with_asset {
+        aborts_if farming_asset.asset_total_weight <= 0 && farming_asset.last_update_timestamp > now_seconds;
+        let time_period = now_seconds - farming_asset.last_update_timestamp;
+        aborts_if farming_asset.asset_total_weight <= 0 && farming_asset.release_per_second * time_period > MAX_U128;
+        aborts_if farming_asset.asset_total_weight <= 0 && farming_asset.harvest_index + (farming_asset.release_per_second * time_period * EXP_SCALE) > MAX_U128;
+
+        aborts_if farming_asset.asset_total_weight > 0 && farming_asset.asset_total_weight <= 0;
+        aborts_if farming_asset.asset_total_weight > 0 && farming_asset.last_update_timestamp > now_seconds;
+        aborts_if farming_asset.asset_total_weight > 0 && farming_asset.release_per_second * time_period > MAX_U128;
+        aborts_if farming_asset.asset_total_weight > 0 && farming_asset.release_per_second * time_period * EXP_SCALE > MAX_U128;
+        aborts_if farming_asset.asset_total_weight > 0 && farming_asset.harvest_index + (farming_asset.release_per_second * time_period * EXP_SCALE / farming_asset.asset_total_weight) > MAX_U128;
+    }
+
     /// There is calculating from harvest index and global parameters without asset_total_weight
     public fun calculate_harvest_index_weight_zero(harvest_index: u128,
                                                    last_update_timestamp: u64,
@@ -448,6 +615,15 @@ module YieldFarmingV2 {
         let time_period = now_seconds - last_update_timestamp;
         let addtion_index = release_per_second * ((time_period as u128));
         harvest_index + mantissa(exp_direct_expand(addtion_index))
+    }
+
+    spec calculate_harvest_index_weight_zero {
+        aborts_if last_update_timestamp > now_seconds;
+        let time_period = now_seconds - last_update_timestamp;
+        let addtion_index = release_per_second * time_period;
+        aborts_if addtion_index > MAX_U128;
+        aborts_if harvest_index + (addtion_index * EXP_SCALE) > MAX_U128;
+        ensures result == harvest_index + (addtion_index * EXP_SCALE);
     }
 
     /// There is calculating from harvest index and global parameters
@@ -465,6 +641,17 @@ module YieldFarmingV2 {
         harvest_index + mantissa(exp(numr, denom))
     }
 
+    spec calculate_harvest_index {
+        aborts_if asset_total_weight <= 0;
+        aborts_if last_update_timestamp > now_seconds;
+        let time_period = now_seconds - last_update_timestamp;
+        let numr = release_per_second * time_period;
+        aborts_if numr > MAX_U128;
+        aborts_if numr * EXP_SCALE > MAX_U128;
+        aborts_if harvest_index + (numr * EXP_SCALE / asset_total_weight) > MAX_U128;
+        ensures result == harvest_index + (numr * EXP_SCALE / asset_total_weight);
+    }
+
     /// This function will return a gain index
     public fun calculate_withdraw_amount(harvest_index: u128,
                                          last_harvest_index: u128,
@@ -474,9 +661,21 @@ module YieldFarmingV2 {
         truncate(exp_direct(amount))
     }
 
+    spec calculate_withdraw_amount {
+        aborts_if harvest_index < last_harvest_index;
+        let amount = asset_weight * (harvest_index - last_harvest_index);
+        aborts_if amount > MAX_U128;
+        ensures result == amount / EXP_SCALE;
+    }
+
     /// Check the Farming of TokenT is exists.
     public fun exists_at<PoolType: store, RewardTokenT: store>(broker: address): bool {
         exists<Farming<PoolType, RewardTokenT>>(broker)
+    }
+
+    spec exists_at {
+        aborts_if false;
+        ensures result == exists<Farming<PoolType, RewardTokenT>>(broker);
     }
 
     /// Check the Farming of AsssetT is exists.
@@ -484,9 +683,20 @@ module YieldFarmingV2 {
         exists<FarmingAsset<PoolType, AssetT>>(broker)
     }
 
+    spec exists_asset_at {
+        aborts_if false;
+        ensures result == exists<FarmingAsset<PoolType, AssetT>>(broker);
+    }
+
     /// Check stake at address exists.
     public fun exists_stake_at_address<PoolType: store, AssetT: store>(account: address): bool {
         exists<Stake<PoolType, AssetT>>(account)
     }
+
+    spec exists_stake_at_address {
+        aborts_if false;
+        ensures result == exists<Stake<PoolType, AssetT>>(account);
+    }
 }
 }
+

@@ -7,8 +7,8 @@ module VMConfig {
     use StarcoinFramework::Vector;
     use StarcoinFramework::ChainId;
     spec module {
-        pragma verify = false;
-        pragma aborts_if_is_strict;
+        pragma verify = true;
+        pragma aborts_if_is_strict = false;
     }
 
     /// The struct to hold all config data needed to operate the VM.

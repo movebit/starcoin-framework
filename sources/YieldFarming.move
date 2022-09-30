@@ -19,7 +19,8 @@ module YieldFarming {
     const ERR_FARMING_TIMESTAMP_INVALID: u64 = 110;
     
     spec module {
-        pragma verify = false;
+        pragma verify = true;
+        pragma aborts_if_is_strict;
     }
 
     /// The object of yield farming
@@ -67,6 +68,12 @@ module YieldFarming {
         }
     }
 
+    spec exp {
+        aborts_if num * EXP_SCALE > MAX_U128;
+        aborts_if denom == 0;
+        ensures result.mantissa == num * EXP_SCALE / denom;
+    }
+
     fun mul_u128(a: u128, b: u128): u128 {
         if (a == 0 || b == 0) {
             return 0
@@ -74,6 +81,12 @@ module YieldFarming {
 
         a * b
     }
+
+    spec mul_u128 {
+        aborts_if a * b > MAX_U128;
+        ensures result == a * b;
+    }
+
 
     fun div_u128(a: u128, b: u128): u128 {
         if ( b == 0) {
@@ -85,8 +98,17 @@ module YieldFarming {
         a / b
     }
 
+    spec div_u128 {
+        aborts_if b == 0;
+        ensures result == a / b;
+    }
+
     fun truncate(exp: Exp): u128 {
         return exp.mantissa / EXP_SCALE
+    }
+
+    spec truncate {
+        ensures result == exp.mantissa / EXP_SCALE;
     }
 
     /// Called by token issuer
@@ -98,6 +120,10 @@ module YieldFarming {
         abort Errors::deprecated(EDEPRECATED_FUNCTION)
     }
 
+    spec initialize {
+        aborts_if true;
+    }
+
     // Initialize asset pools
     public fun initialize_asset<PoolType: store, AssetT: store>(
         _account: &signer,
@@ -106,11 +132,19 @@ module YieldFarming {
         abort Errors::deprecated(EDEPRECATED_FUNCTION)
     }
 
+    spec initialize_asset {
+        aborts_if true;
+    }
+
     public fun modify_parameter<PoolType: store, RewardTokenT: store, AssetT: store>(
         _cap: &ParameterModifyCapability<PoolType, AssetT>,
         _broker: address,
         _release_per_second: u128) {
         abort Errors::deprecated(EDEPRECATED_FUNCTION)
+    }
+
+    spec modify_parameter {
+        aborts_if true;
     }
 
     /// Call by stake user, staking amount of asset in order to get yield farming token
@@ -122,10 +156,18 @@ module YieldFarming {
         abort Errors::deprecated(EDEPRECATED_FUNCTION)
     }
 
+    spec stake {
+        aborts_if true;
+    }
+
     /// Unstake asset from farming pool
     public fun unstake<PoolType: store, RewardTokenT: store, AssetT: store>(_account: &signer, _broker: address)
     : (AssetT, Token::Token<RewardTokenT>) {
         abort Errors::deprecated(EDEPRECATED_FUNCTION)
+    }
+
+    spec unstake {
+        aborts_if true;
     }
 
     /// Harvest yield farming token from stake
@@ -138,11 +180,20 @@ module YieldFarming {
         abort Errors::deprecated(EDEPRECATED_FUNCTION)
     }
 
+    spec harvest {
+        aborts_if true;
+    }
+
     /// The user can quering all yield farming amount in any time and scene
     public fun query_gov_token_amount<PoolType: store,
                                       RewardTokenT: store,
                                       AssetT: store>(_account: &signer, _broker: address): u128 {
         0
+    }
+
+    spec query_gov_token_amount {
+        aborts_if false;
+        ensures result == 0;
     }
 
     /// Query total stake count from yield farming resource
@@ -151,15 +202,30 @@ module YieldFarming {
         0
     }
 
+    spec query_total_stake {
+        aborts_if false;
+        ensures result == 0;
+    }
+
     /// Query stake weight from user staking objects.
     public fun query_stake<PoolType: store,
                            AssetT: store>(_account: &signer): u128 {
         0
     }
 
+    spec query_stake {
+        aborts_if false;
+        ensures result == 0;
+    }
+
     /// Update farming asset
     fun calculate_harvest_index_with_asset<PoolType, AssetT>(_farming_asset: &FarmingAsset<PoolType, AssetT>, _now_seconds: u64): u128 {
         0
+    }
+
+    spec calculate_harvest_index_with_asset {
+        aborts_if false;
+        ensures result == 0;
     }
 
     /// There is calculating from harvest index and global parameters without asset_total_weight
@@ -168,6 +234,11 @@ module YieldFarming {
                                                    _now_seconds: u64,
                                                    _release_per_second: u128): u128 {
         0
+    }
+
+    spec calculate_harvest_index_weight_zero {
+        aborts_if false;
+        ensures result == 0;
     }
 
     /// There is calculating from harvest index and global parameters
@@ -179,6 +250,11 @@ module YieldFarming {
         0
     }
 
+    spec calculate_harvest_index {
+        aborts_if false;
+        ensures result == 0;
+    }
+
     /// This function will return a gain index
     public fun calculate_withdraw_amount(_harvest_index: u128,
                                          _last_harvest_index: u128,
@@ -186,9 +262,19 @@ module YieldFarming {
         0
     }
 
+    spec calculate_withdraw_amount {
+        aborts_if false;
+        ensures result == 0;
+    }
+
     /// Check the Farming of TokenT is exists.
     public fun exists_at<PoolType: store, RewardTokenT: store>(broker: address): bool {
         exists<Farming<PoolType, RewardTokenT>>(broker)
+    }
+
+    spec exists_at {
+        aborts_if false;
+        ensures result == exists<Farming<PoolType, RewardTokenT>>(broker);
     }
 
     /// Check the Farming of AsssetT is exists.
@@ -196,9 +282,19 @@ module YieldFarming {
         exists<FarmingAsset<PoolType, AssetT>>(broker)
     }
 
+    spec exists_asset_at {
+        aborts_if false;
+        ensures result == exists<FarmingAsset<PoolType, AssetT>>(broker);
+    }
+
     /// Check stake at address exists.
     public fun exists_stake_at_address<PoolType: store, AssetT: store>(account: address): bool {
         exists<Stake<PoolType, AssetT>>(account)
+    }
+
+    spec exists_stake_at_address {
+        aborts_if false;
+        ensures result == exists<Stake<PoolType, AssetT>>(account);
     }
 }
 }
